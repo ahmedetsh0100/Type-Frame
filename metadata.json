@@ -1,0 +1,6 @@
+{
+  "name": "TYPEFRAME",
+  "description": "Mobile Arabic & English typography and photo design studio with real OpenType shaping, custom OTF/TTF fonts, shapes, layers, and high-res PNG export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
