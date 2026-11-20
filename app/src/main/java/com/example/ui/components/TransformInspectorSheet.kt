@@ -28,7 +28,7 @@ import com.example.model.ProjectDocument
 import com.example.model.ShapeKind
 import com.example.model.ShapeLayer
 import com.example.model.TextLayer
-import com.example.ui.theme.StudioTextSecondary
+import com.example.ui.theme.LocalStudioPalette
 import kotlin.math.roundToInt
 
 @Composable
@@ -39,12 +39,13 @@ fun TransformInspectorSheet(
     onUpdateLayer: (CanvasLayer) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = LocalStudioPalette.current
     if (layer == null) {
         Column(modifier = modifier.fillMaxWidth().padding(20.dp)) {
             Text(
-                "Tap any layer on the canvas to resize, rotate, crop, or reposition.",
+                "Tap any layer on the canvas to resize, stretch, rotate, crop, or reposition.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = StudioTextSecondary
+                color = palette.textSecondary
             )
         }
         return
@@ -81,7 +82,9 @@ fun TransformInspectorSheet(
                                 widthPx = layer.widthPx * scale,
                                 heightPx = layer.heightPx * scale,
                                 xPx = document.canvasWidthPx / 2f,
-                                yPx = document.canvasHeightPx / 2f
+                                yPx = document.canvasHeightPx / 2f,
+                                scaleX = 1f,
+                                scaleY = 1f
                             )
                         )
                     },
@@ -124,6 +127,30 @@ fun TransformInspectorSheet(
                     onUpdateLayer(layer.copy(widthPx = w, heightPx = (w * ratio).coerceAtLeast(20f)))
                 }
             )
+        }
+
+        // Independent Horizontal & Vertical Stretch (Scale X / Scale Y)
+        StudioSliderRow(
+            label = "Stretch X (Width Scale)",
+            valueLabel = String.format("%.2f×", layer.scaleX),
+            value = layer.scaleX,
+            range = 0.25f..3.0f,
+            onValueChange = { sx -> onUpdateLayer(layer.withBaseTransform(scaleX = sx)) }
+        )
+        StudioSliderRow(
+            label = "Stretch Y (Height Scale)",
+            valueLabel = String.format("%.2f×", layer.scaleY),
+            value = layer.scaleY,
+            range = 0.25f..3.0f,
+            onValueChange = { sy -> onUpdateLayer(layer.withBaseTransform(scaleY = sy)) }
+        )
+        if (kotlin.math.abs(layer.scaleX - 1f) > 0.02f || kotlin.math.abs(layer.scaleY - 1f) > 0.02f) {
+            OutlinedButton(
+                onClick = { onUpdateLayer(layer.withBaseTransform(scaleX = 1f, scaleY = 1f)) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Reset Stretch (1:1)")
+            }
         }
 
         // Rotation controls
@@ -169,7 +196,6 @@ fun TransformInspectorSheet(
             }
         }
 
-        // Position X/Y + Center Align
         StudioSliderRow(
             label = "Position X",
             valueLabel = "${layer.xPx.roundToInt()} px",

@@ -6,6 +6,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
@@ -40,6 +45,7 @@ import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
@@ -57,7 +63,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -75,27 +80,21 @@ import com.example.model.ShapeKind
 import com.example.model.ShapeLayer
 import com.example.model.TextLayer
 import com.example.render.ExportMode
+import com.example.render.ExportScaleOption
+import com.example.ui.components.BrushInspectorSheet
 import com.example.ui.components.CanvasSettingsSheet
 import com.example.ui.components.ColorPickerSheet
-import com.example.ui.components.ExportPngDialog
+import com.example.ui.components.ExportDialog
+import com.example.ui.components.FloatingLayersPanel
 import com.example.ui.components.FontsSheet
 import com.example.ui.components.ImageCropDialog
-import com.example.ui.components.LayersSheet
 import com.example.ui.components.OpenTypeInspectorSheet
+import com.example.ui.components.SettingsDialog
 import com.example.ui.components.ShapeInspectorSheet
 import com.example.ui.components.StudioCanvasStage
-import com.example.ui.components.TextEditDialog
 import com.example.ui.components.TextStyleInspectorSheet
 import com.example.ui.components.TransformInspectorSheet
-import com.example.ui.theme.StudioBorder
-import com.example.ui.theme.StudioCoral
-import com.example.ui.theme.StudioCoralSoft
-import com.example.ui.theme.StudioMint
-import com.example.ui.theme.StudioObsidian
-import com.example.ui.theme.StudioSurface
-import com.example.ui.theme.StudioSurfaceElevated
-import com.example.ui.theme.StudioTextMuted
-import com.example.ui.theme.StudioTextSecondary
+import com.example.ui.theme.LocalStudioPalette
 import com.example.viewmodel.ColorTarget
 import com.example.viewmodel.EditorTab
 import com.example.viewmodel.StudioViewModel
@@ -106,12 +105,18 @@ fun StudioEditorScreen(
     viewModel: StudioViewModel,
     onNavigateBack: () -> Unit
 ) {
+    val palette = LocalStudioPalette.current
+
     LaunchedEffect(projectId) {
         viewModel.loadProject(projectId)
     }
 
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val fonts by viewModel.fonts.collectAsStateWithLifecycle()
+    val fontFamilies by viewModel.fontFamilies.collectAsStateWithLifecycle()
+    val themeSettings by viewModel.themeSettings.collectAsStateWithLifecycle()
+    val savedColors by viewModel.savedColors.collectAsStateWithLifecycle()
+    val recentColors by viewModel.recentColors.collectAsStateWithLifecycle()
     val fontsById = remember(fonts) { fonts.associateBy { it.id } }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -125,7 +130,14 @@ fun StudioEditorScreen(
     val saveAndExit = {
         viewModel.saveProject(onSaved = onNavigateBack)
     }
-    BackHandler { saveAndExit() }
+
+    BackHandler {
+        when {
+            state.isInlineTextEditing -> viewModel.exitInlineTextEditing()
+            state.isLayersPanelOpen -> viewModel.setLayersPanelOpen(false)
+            else -> saveAndExit()
+        }
+    }
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -133,25 +145,37 @@ fun StudioEditorScreen(
         uri?.let { viewModel.importImageLayer(it) }
     }
 
-    val fontPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.importCustomFont(it) }
+    val multiFontPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) viewModel.importMultipleFonts(uris)
     }
 
     var pendingExportMode by remember { mutableStateOf(ExportMode.FULL_IMAGE_PNG) }
-    var pendingExportScale by remember { mutableIntStateOf(1) }
-    val createDocumentLauncher = rememberLauncherForActivityResult(
+    var pendingExportScale by remember { mutableStateOf(ExportScaleOption.X1) }
+    var pendingTextOnly by remember { mutableStateOf(false) }
+
+    val createPngLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("image/png")
     ) { uri: Uri? ->
-        uri?.let { viewModel.saveExportToCustomUri(it, pendingExportMode, pendingExportScale) }
+        uri?.let { viewModel.saveExportToCustomUri(it, pendingExportMode, pendingExportScale, pendingTextOnly) }
+    }
+    val createJpegLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/jpeg")
+    ) { uri: Uri? ->
+        uri?.let { viewModel.saveExportToCustomUri(it, pendingExportMode, pendingExportScale, pendingTextOnly) }
+    }
+    val createPdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri: Uri? ->
+        uri?.let { viewModel.saveExportToCustomUri(it, pendingExportMode, pendingExportScale, pendingTextOnly) }
     }
 
     val doc = state.document
     val selectedLayer = doc?.layers?.find { it.id == state.selectedLayerId }
 
     Scaffold(
-        containerColor = StudioObsidian,
+        containerColor = palette.background,
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         if (state.isLoading || doc == null) {
@@ -159,7 +183,7 @@ fun StudioEditorScreen(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = StudioCoral)
+                CircularProgressIndicator(color = palette.accent)
             }
             return@Scaffold
         }
@@ -167,23 +191,23 @@ fun StudioEditorScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(StudioObsidian)
+                .background(palette.background)
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // Top Studio Action Bar
+            // Top Studio Bar
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(StudioSurface)
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .background(palette.surface)
+                    .padding(horizontal = 6.dp, vertical = 6.dp)
             ) {
                 IconButton(
                     onClick = saveAndExit,
                     modifier = Modifier.testTag("editor_back_button")
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Save and exit", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Save and exit", tint = palette.textPrimary)
                 }
 
                 IconButton(
@@ -194,7 +218,7 @@ fun StudioEditorScreen(
                     Icon(
                         Icons.AutoMirrored.Filled.Undo,
                         contentDescription = "Undo",
-                        tint = if (state.canUndo) Color.White else StudioTextMuted
+                        tint = if (state.canUndo) palette.textPrimary else palette.textMuted
                     )
                 }
                 IconButton(
@@ -205,7 +229,7 @@ fun StudioEditorScreen(
                     Icon(
                         Icons.AutoMirrored.Filled.Redo,
                         contentDescription = "Redo",
-                        tint = if (state.canRedo) Color.White else StudioTextMuted
+                        tint = if (state.canRedo) palette.textPrimary else palette.textMuted
                     )
                 }
 
@@ -218,47 +242,32 @@ fun StudioEditorScreen(
                     Text(
                         text = doc.title,
                         style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
+                        color = palette.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "${doc.canvasWidthPx}×${doc.canvasHeightPx} px",
                         style = MaterialTheme.typography.labelSmall,
-                        color = StudioTextSecondary
+                        color = palette.textSecondary
                     )
                 }
 
-                Surface(
-                    onClick = { viewModel.selectTab(EditorTab.LAYERS) },
-                    color = if (state.activeTab == EditorTab.LAYERS) StudioCoralSoft else StudioSurfaceElevated,
-                    shape = RoundedCornerShape(99.dp),
-                    modifier = Modifier.border(1.dp, StudioBorder, RoundedCornerShape(99.dp))
+                IconButton(
+                    onClick = { viewModel.setShowSettingsDialog(true) },
+                    modifier = Modifier.testTag("editor_settings_button")
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Layers,
-                            contentDescription = "Layers",
-                            tint = StudioMint,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = "${doc.layers.size}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White
-                        )
-                    }
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "Theme settings",
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
-
-                Spacer(Modifier.width(6.dp))
 
                 Button(
                     onClick = { viewModel.setShowExportDialog(true) },
-                    colors = ButtonDefaults.buttonColors(containerColor = StudioCoral),
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.accent),
                     shape = RoundedCornerShape(99.dp),
                     modifier = Modifier.height(38.dp).testTag("export_button")
                 ) {
@@ -268,36 +277,125 @@ fun StudioEditorScreen(
                 }
             }
 
-            // Center WYSIWYG Canvas Stage
-            StudioCanvasStage(
-                document = doc,
-                selectedLayerId = state.selectedLayerId,
-                fontsById = fontsById,
-                fontRepository = viewModel.fontRepository,
-                isEyedropperActive = state.isEyedropperActive,
-                eyedropperBitmap = state.eyedropperBitmap,
-                onSelectLayer = { viewModel.selectLayer(it) },
-                onDoubleTapTextLayer = { viewModel.setShowTextEditorDialog(true) },
-                onBeginGesture = { viewModel.beginTransientGesture() },
-                onUpdateLayerTransient = { updated ->
-                    viewModel.updateDocumentTransient { d ->
-                        d.copy(layers = d.layers.map { if (it.id == updated.id) updated else it })
-                    }
-                },
-                onEndGesture = { viewModel.endTransientGesture() },
-                onFinishEyedropper = { argb -> viewModel.finishEyedropper(argb) },
-                onCancelEyedropper = { viewModel.cancelEyedropper() },
-                modifier = Modifier.weight(1f)
-            )
+            // Center WYSIWYG Canvas Stage + Floating Layers Button & Panel
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                StudioCanvasStage(
+                    document = doc,
+                    selectedLayerId = state.selectedLayerId,
+                    fontsById = fontsById,
+                    fontRepository = viewModel.fontRepository,
+                    isEyedropperActive = state.isEyedropperActive,
+                    eyedropperBitmap = state.eyedropperBitmap,
+                    isBrushMode = state.isBrushMode,
+                    brushSettings = state.brushSettings,
+                    isInlineTextEditing = state.isInlineTextEditing,
+                    inlineSelectionStart = state.inlineSelectionStart,
+                    inlineSelectionEnd = state.inlineSelectionEnd,
+                    onSelectLayer = { viewModel.selectLayer(it) },
+                    onDoubleTapTextLayer = { viewModel.enterInlineTextEditing(it.id) },
+                    onInlineTextChanged = { txt, s, e -> viewModel.updateInlineTextContent(txt, s, e) },
+                    onInlineSelectionChanged = { s, e -> viewModel.updateInlineSelection(s, e) },
+                    onApplyInlineStyle = { sizeDelta, bold, italic, underline ->
+                        val curText = selectedLayer as? TextLayer
+                        val targetSize = if (sizeDelta != null && curText != null) {
+                            (curText.fontSizePx + sizeDelta).coerceIn(18f, 360f)
+                        } else null
+                        viewModel.applyStyleToInlineSelection(
+                            fontSizePx = targetSize,
+                            toggleBold = bold,
+                            toggleItalic = italic,
+                            toggleUnderline = underline
+                        )
+                    },
+                    onOpenColorForInlineText = { viewModel.setColorTarget(ColorTarget.TEXT_FILL) },
+                    onOpenFontsForInlineText = { viewModel.selectTab(EditorTab.FONTS) },
+                    onClearInlineSpans = { viewModel.clearInlineRangeSpans() },
+                    onExitInlineTextEditing = { viewModel.exitInlineTextEditing() },
+                    onCommitBrushStroke = { pts -> viewModel.commitBrushStroke(pts) },
+                    onBeginGesture = { viewModel.beginTransientGesture() },
+                    onUpdateLayerTransient = { updated ->
+                        viewModel.updateDocumentTransient { d ->
+                            d.copy(layers = d.layers.map { if (it.id == updated.id) updated else it })
+                        }
+                    },
+                    onEndGesture = { viewModel.endTransientGesture() },
+                    onFinishEyedropper = { argb -> viewModel.finishEyedropper(argb) },
+                    onCancelEyedropper = { viewModel.cancelEyedropper() },
+                    modifier = Modifier.fillMaxSize()
+                )
 
-            // Expandable Context Inspector Drawer
+                // Small Floating Layers Edge Pill Button (opens floating panel only when requested)
+                if (!state.isEyedropperActive && !state.isLayersPanelOpen) {
+                    Surface(
+                        onClick = { viewModel.toggleLayersPanel() },
+                        color = palette.surfaceElevated.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(topStart = 99.dp, bottomStart = 99.dp),
+                        shadowElevation = 6.dp,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .border(
+                                width = 1.dp,
+                                color = palette.border,
+                                shape = RoundedCornerShape(topStart = 99.dp, bottomStart = 99.dp)
+                            )
+                            .testTag("floating_layers_button")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 9.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Layers,
+                                contentDescription = "Open Layers",
+                                tint = palette.mint,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "${doc.layers.size}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = palette.textPrimary
+                            )
+                        }
+                    }
+                }
+
+                // Dismissible Floating Layer Panel
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = state.isLayersPanelOpen && !state.isEyedropperActive,
+                    enter = fadeIn() + slideInHorizontally(initialOffsetX = { it / 2 }),
+                    exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it / 2 }),
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 10.dp)
+                ) {
+                    FloatingLayersPanel(
+                        layers = doc.layers,
+                        selectedLayerId = state.selectedLayerId,
+                        onClose = { viewModel.setLayersPanelOpen(false) },
+                        onSelectLayer = { viewModel.selectLayer(it) },
+                        onReorderLayer = { from, to -> viewModel.reorderLayer(from, to) },
+                        onMoveUp = { viewModel.moveLayerUp(it) },
+                        onMoveDown = { viewModel.moveLayerDown(it) },
+                        onToggleVisibility = { viewModel.toggleLayerVisibility(it) },
+                        onToggleLock = { viewModel.toggleLayerLock(it) },
+                        onDuplicate = { viewModel.duplicateLayer(it) },
+                        onDelete = { viewModel.deleteLayer(it) },
+                        onRename = { id, newName -> viewModel.renameLayer(id, newName) },
+                        onOpacityChanged = { id, op -> viewModel.setLayerOpacity(id, op) },
+                        onBlendModeChanged = { id, bm -> viewModel.setLayerBlendMode(id, bm) }
+                    )
+                }
+            }
+
+            // Expandable Bottom Context Inspector Drawer
             AnimatedVisibility(visible = state.activeTab != EditorTab.NONE && !state.isEyedropperActive) {
                 Surface(
-                    color = StudioSurface,
+                    color = palette.surface,
                     shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 270.dp)
+                        .heightIn(max = 264.dp)
                 ) {
                     Column {
                         Row(
@@ -305,35 +403,36 @@ fun StudioEditorScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                                .padding(horizontal = 16.dp, vertical = 5.dp)
                         ) {
                             Text(
                                 text = tabHeaderLabel(state.activeTab),
                                 style = MaterialTheme.typography.titleSmall,
-                                color = Color.White
+                                color = palette.textPrimary
                             )
                             IconButton(
                                 onClick = { viewModel.selectTab(EditorTab.NONE) },
                                 modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.Close, contentDescription = "Close panel", tint = StudioTextSecondary)
+                                Icon(Icons.Default.Close, contentDescription = "Close panel", tint = palette.textSecondary)
                             }
                         }
-                        HorizontalDivider(color = StudioBorder)
+                        HorizontalDivider(color = palette.border)
 
                         when (state.activeTab) {
                             EditorTab.TEXT_STYLE -> TextStyleInspectorSheet(
                                 textLayer = selectedLayer as? TextLayer,
-                                onEditTextClick = { viewModel.setShowTextEditorDialog(true) },
+                                onEditTextClick = { viewModel.enterInlineTextEditing() },
                                 onUpdateText = { viewModel.updateSelectedText(it) },
                                 onUpdateOpacity = { op -> viewModel.updateSelectedLayerTransform(opacity = op) },
                                 onPickColorTarget = { target -> viewModel.setColorTarget(target) }
                             )
                             EditorTab.FONTS -> FontsSheet(
-                                fonts = fonts,
+                                fontFamilies = fontFamilies,
                                 selectedFontId = (selectedLayer as? TextLayer)?.fontId,
+                                fontRepository = viewModel.fontRepository,
                                 onImportFontClick = {
-                                    fontPicker.launch(
+                                    multiFontPicker.launch(
                                         arrayOf(
                                             "font/otf",
                                             "font/ttf",
@@ -352,9 +451,8 @@ fun StudioEditorScreen(
                                         viewModel.applyFontToSelectedText(font)
                                     }
                                 },
-                                onDeleteImportedFont = { font ->
-                                    viewModel.deleteImportedFont(font)
-                                }
+                                onToggleFavoriteFamily = { key -> viewModel.toggleFavoriteFontFamily(key) },
+                                onDeleteImportedFont = { font -> viewModel.deleteImportedFont(font) }
                             )
                             EditorTab.OPENTYPE -> {
                                 val textLayer = selectedLayer as? TextLayer
@@ -370,8 +468,11 @@ fun StudioEditorScreen(
                                 selectedLayer = selectedLayer,
                                 activeColorTarget = state.activeColorTarget,
                                 currentColorArgb = viewModel.activeColorValue(),
+                                savedColors = savedColors,
+                                recentColors = recentColors,
                                 onSelectColorTarget = { viewModel.setColorTarget(it) },
                                 onColorChanged = { argb -> viewModel.applyColorToActiveTarget(argb) },
+                                onSaveColor = { argb -> viewModel.addSavedColor(argb) },
                                 onStartEyedropper = { viewModel.activateEyedropper() }
                             )
                             EditorTab.SHAPE -> ShapeInspectorSheet(
@@ -380,6 +481,15 @@ fun StudioEditorScreen(
                                 onUpdateShape = { viewModel.updateSelectedShape(it) },
                                 onUpdateOpacity = { op -> viewModel.updateSelectedLayerTransform(opacity = op) },
                                 onPickColorTarget = { target -> viewModel.setColorTarget(target) }
+                            )
+                            EditorTab.BRUSH -> BrushInspectorSheet(
+                                brushSettings = state.brushSettings,
+                                selectedLayer = selectedLayer,
+                                onUpdateBrush = { viewModel.updateBrushSettings(it) },
+                                onAddPaintLayer = { viewModel.addPaintLayer() },
+                                onPickBrushColor = { viewModel.setColorTarget(ColorTarget.BRUSH_COLOR) },
+                                onStartEyedropper = { viewModel.activateEyedropper(ColorTarget.BRUSH_COLOR) },
+                                onRestoreErasedImage = { id -> viewModel.clearImageEraseMask(id) }
                             )
                             EditorTab.TRANSFORM -> TransformInspectorSheet(
                                 document = doc,
@@ -390,17 +500,6 @@ fun StudioEditorScreen(
                                         d.copy(layers = d.layers.map { if (it.id == updated.id) updated else it })
                                     }
                                 }
-                            )
-                            EditorTab.LAYERS -> LayersSheet(
-                                layers = doc.layers,
-                                selectedLayerId = state.selectedLayerId,
-                                onSelectLayer = { viewModel.selectLayer(it) },
-                                onMoveUp = { viewModel.moveLayerUp(it) },
-                                onMoveDown = { viewModel.moveLayerDown(it) },
-                                onToggleVisibility = { viewModel.toggleLayerVisibility(it) },
-                                onToggleLock = { viewModel.toggleLayerLock(it) },
-                                onDuplicate = { viewModel.duplicateLayer(it) },
-                                onDelete = { viewModel.deleteLayer(it) }
                             )
                             EditorTab.CANVAS -> CanvasSettingsSheet(
                                 document = doc,
@@ -413,14 +512,14 @@ fun StudioEditorScreen(
                 }
             }
 
-            // Bottom Picsart-Style Scrollable Tool Dock
-            HorizontalDivider(color = StudioBorder)
+            // Bottom Scrollable Tool Dock
+            HorizontalDivider(color = palette.border)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(StudioSurface)
+                    .background(palette.surface)
                     .horizontalScroll(rememberScrollState())
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
@@ -428,7 +527,7 @@ fun StudioEditorScreen(
                     icon = Icons.Default.AddPhotoAlternate,
                     label = "+ Photo",
                     active = false,
-                    accent = StudioMint,
+                    accent = palette.mint,
                     testTag = "dock_add_photo",
                     onClick = {
                         photoPicker.launch(
@@ -439,15 +538,24 @@ fun StudioEditorScreen(
                 DockActionButton(
                     icon = Icons.Default.TextFields,
                     label = "+ Text",
-                    active = false,
-                    accent = StudioCoral,
+                    active = state.isInlineTextEditing,
+                    accent = palette.accent,
                     testTag = "dock_add_text",
                     onClick = { viewModel.addTextLayer() }
+                )
+                DockActionButton(
+                    icon = Icons.Default.Brush,
+                    label = "Brush",
+                    active = state.activeTab == EditorTab.BRUSH,
+                    accent = palette.accent,
+                    testTag = "dock_brush",
+                    onClick = { viewModel.selectTab(EditorTab.BRUSH) }
                 )
                 DockActionButton(
                     icon = Icons.Default.Category,
                     label = "Shapes",
                     active = state.activeTab == EditorTab.SHAPE,
+                    accent = palette.accent,
                     testTag = "dock_shapes",
                     onClick = {
                         if (selectedLayer !is ShapeLayer) {
@@ -461,6 +569,7 @@ fun StudioEditorScreen(
                     icon = Icons.Default.FontDownload,
                     label = "Fonts",
                     active = state.activeTab == EditorTab.FONTS,
+                    accent = palette.accent,
                     testTag = "dock_fonts",
                     onClick = { viewModel.selectTab(EditorTab.FONTS) }
                 )
@@ -468,13 +577,15 @@ fun StudioEditorScreen(
                     icon = Icons.Default.AutoAwesome,
                     label = "OpenType",
                     active = state.activeTab == EditorTab.OPENTYPE,
+                    accent = palette.accent,
                     testTag = "dock_opentype",
                     onClick = { viewModel.selectTab(EditorTab.OPENTYPE) }
                 )
                 DockActionButton(
                     icon = Icons.Default.Tune,
-                    label = "Text Style",
+                    label = "Style",
                     active = state.activeTab == EditorTab.TEXT_STYLE,
+                    accent = palette.accent,
                     testTag = "dock_text_style",
                     onClick = { viewModel.selectTab(EditorTab.TEXT_STYLE) }
                 )
@@ -482,6 +593,7 @@ fun StudioEditorScreen(
                     icon = Icons.Default.Palette,
                     label = "Color",
                     active = state.activeTab == EditorTab.COLOR,
+                    accent = palette.accent,
                     testTag = "dock_color",
                     onClick = { viewModel.selectTab(EditorTab.COLOR) }
                 )
@@ -489,36 +601,20 @@ fun StudioEditorScreen(
                     icon = Icons.Default.OpenWith,
                     label = "Transform",
                     active = state.activeTab == EditorTab.TRANSFORM,
+                    accent = palette.accent,
                     testTag = "dock_transform",
                     onClick = { viewModel.selectTab(EditorTab.TRANSFORM) }
-                )
-                DockActionButton(
-                    icon = Icons.Default.Layers,
-                    label = "Layers",
-                    active = state.activeTab == EditorTab.LAYERS,
-                    testTag = "dock_layers",
-                    onClick = { viewModel.selectTab(EditorTab.LAYERS) }
                 )
                 DockActionButton(
                     icon = Icons.Default.AspectRatio,
                     label = "Canvas",
                     active = state.activeTab == EditorTab.CANVAS,
+                    accent = palette.accent,
                     testTag = "dock_canvas",
                     onClick = { viewModel.selectTab(EditorTab.CANVAS) }
                 )
             }
         }
-    }
-
-    if (state.showTextEditorDialog && selectedLayer is TextLayer) {
-        TextEditDialog(
-            initialText = selectedLayer.text,
-            onConfirm = { newText ->
-                viewModel.updateSelectedText { it.copy(text = newText) }
-                viewModel.setShowTextEditorDialog(false)
-            },
-            onDismiss = { viewModel.setShowTextEditorDialog(false) }
-        )
     }
 
     if (state.showCropDialog && selectedLayer is ImageLayer) {
@@ -529,17 +625,33 @@ fun StudioEditorScreen(
         )
     }
 
+    if (state.showSettingsDialog) {
+        SettingsDialog(
+            themeSettings = themeSettings,
+            onSelectThemeMode = { viewModel.setThemeMode(it) },
+            onSelectAccentColor = { viewModel.setAccentColor(it) },
+            onDismiss = { viewModel.setShowSettingsDialog(false) }
+        )
+    }
+
     if (state.showExportDialog && doc != null) {
-        ExportPngDialog(
+        ExportDialog(
             document = doc,
             isExporting = state.isExporting,
             lastExportResult = state.lastExportResult,
-            onExport = { mode, scale -> viewModel.exportPng(mode, scale) },
-            onSaveAsCustomFile = { mode, scale ->
+            onRenderPreview = { mode, textOnly -> viewModel.renderExportPreview(mode, textOnly) },
+            onExport = { mode, scale, textOnly -> viewModel.export(mode, scale, textOnly) },
+            onSaveAsCustomFile = { mode, scale, textOnly ->
                 pendingExportMode = mode
                 pendingExportScale = scale
-                val suffix = if (mode == ExportMode.TRANSPARENT_PNG) "transparent" else "full"
-                createDocumentLauncher.launch("TYPEFRAME_${suffix}.png")
+                pendingTextOnly = textOnly
+                val safeTitle = doc.title.replace(Regex("[^A-Za-z0-9_\\-]"), "_").ifBlank { "HTYPE" }
+                when (mode) {
+                    ExportMode.PDF_DOCUMENT -> createPdfLauncher.launch("${safeTitle}.pdf")
+                    ExportMode.HIGH_RES_JPEG -> createJpegLauncher.launch("${safeTitle}.jpg")
+                    ExportMode.FULL_IMAGE_PNG -> createPngLauncher.launch("${safeTitle}_full.png")
+                    ExportMode.TRANSPARENT_PNG -> createPngLauncher.launch("${safeTitle}_transparent.png")
+                }
             },
             onDismiss = { viewModel.setShowExportDialog(false) }
         )
@@ -551,12 +663,13 @@ private fun DockActionButton(
     icon: ImageVector,
     label: String,
     active: Boolean,
-    accent: Color = StudioCoral,
+    accent: Color,
     testTag: String,
     onClick: () -> Unit
 ) {
-    val bg = if (active) StudioCoralSoft else Color.Transparent
-    val fg = if (active) accent else Color.White
+    val palette = LocalStudioPalette.current
+    val bg = if (active) palette.accentSoft else Color.Transparent
+    val fg = if (active) accent else palette.textPrimary
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -584,12 +697,12 @@ private fun DockActionButton(
 
 private fun tabHeaderLabel(tab: EditorTab): String = when (tab) {
     EditorTab.TEXT_STYLE -> "Text Styling & Arabic Spacing"
-    EditorTab.FONTS -> "Custom .OTF & .TTF Fonts"
-    EditorTab.OPENTYPE -> "OpenType Features (HarfBuzz / FreeType)"
-    EditorTab.COLOR -> "Color Picker & Eyedropper"
-    EditorTab.SHAPE -> "Vector Shapes & Manual Dimensions"
-    EditorTab.TRANSFORM -> "Transform, Crop & Position"
-    EditorTab.LAYERS -> "Layer Stack"
+    EditorTab.FONTS -> "Fonts & Weights"
+    EditorTab.OPENTYPE -> "OpenType Features (HarfBuzz)"
+    EditorTab.COLOR -> "Color, Palette & Eyedropper"
+    EditorTab.SHAPE -> "Vector Shapes & Dimensions"
+    EditorTab.BRUSH -> "Brush & Non-Destructive Eraser"
+    EditorTab.TRANSFORM -> "Transform, Stretch & Crop"
     EditorTab.CANVAS -> "Canvas & Background"
     EditorTab.NONE -> ""
 }

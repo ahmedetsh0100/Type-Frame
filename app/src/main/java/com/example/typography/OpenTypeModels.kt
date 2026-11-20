@@ -46,5 +46,7 @@ data class FontMetadata(
     val features: List<OpenTypeFeatureInfo>,
     val hasMarkPositioning: Boolean,
     val hasCursiveAttachment: Boolean,
-    val hasArabicShaping: Boolean
+    val hasArabicShaping: Boolean,
+    val weightValue: Int = 400,
+    val isItalic: Boolean = false
 )

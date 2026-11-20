@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,25 +67,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.rememberAsyncImagePainter
+import com.example.R
 import com.example.data.ProjectEntity
 import com.example.model.DefaultCanvasPresets
-import com.example.ui.theme.StudioBorder
-import com.example.ui.theme.StudioCoral
-import com.example.ui.theme.StudioCoralSoft
-import com.example.ui.theme.StudioDanger
-import com.example.ui.theme.StudioMint
-import com.example.ui.theme.StudioMintSoft
-import com.example.ui.theme.StudioObsidian
-import com.example.ui.theme.StudioSurface
-import com.example.ui.theme.StudioSurfaceElevated
-import com.example.ui.theme.StudioSurfaceHighest
-import com.example.ui.theme.StudioTextMuted
-import com.example.ui.theme.StudioTextSecondary
+import com.example.ui.components.SettingsDialog
+import com.example.ui.theme.LocalStudioPalette
 import com.example.viewmodel.ProjectsViewModel
 import java.io.File
 import java.text.DateFormat
@@ -95,12 +88,15 @@ fun ProjectsHomeScreen(
     viewModel: ProjectsViewModel,
     onOpenProject: (String) -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val fonts by viewModel.fonts.collectAsStateWithLifecycle()
+    val themeSettings by viewModel.themeSettings.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     var showNewCanvasDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(statusMessage) {
         statusMessage?.let {
@@ -115,14 +111,14 @@ fun ProjectsHomeScreen(
         uri?.let { viewModel.createProjectFromImage(it, onOpenProject) }
     }
 
-    val fontPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.importFont(it) }
+    val multiFontPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) viewModel.importMultipleFonts(uris)
     }
 
     Scaffold(
-        containerColor = StudioObsidian,
+        containerColor = palette.background,
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { innerPadding ->
         LazyVerticalGrid(
@@ -141,59 +137,91 @@ fun ProjectsHomeScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // Header
+            // HTYPE Brand Header
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column {
-                        Text(
-                            text = "TYPEFRAME",
-                            style = MaterialTheme.typography.displaySmall,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Arabic & OpenType Design Studio",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = StudioTextSecondary
-                        )
-                    }
-                    Surface(
-                        onClick = {
-                            fontPicker.launch(
-                                arrayOf(
-                                    "font/otf",
-                                    "font/ttf",
-                                    "application/x-font-otf",
-                                    "application/x-font-ttf",
-                                    "application/octet-stream",
-                                    "*/*"
-                                )
-                            )
-                        },
-                        color = StudioMintSoft,
-                        shape = RoundedCornerShape(99.dp),
-                        modifier = Modifier
-                            .border(1.dp, StudioMint.copy(alpha = 0.4f), RoundedCornerShape(99.dp))
-                            .testTag("home_import_font_button")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        Image(
+                            painter = painterResource(id = R.drawable.htype_icon_clean),
+                            contentDescription = "HTYPE monogram",
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.dp, palette.border, RoundedCornerShape(10.dp))
+                        )
+                        Column {
+                            Text(
+                                text = "HTYPE",
+                                style = MaterialTheme.typography.displaySmall,
+                                color = palette.textPrimary
+                            )
+                            Text(
+                                text = "Arabic & OpenType Design Studio",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = palette.textSecondary
+                            )
+                        }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            onClick = {
+                                multiFontPicker.launch(
+                                    arrayOf(
+                                        "font/otf",
+                                        "font/ttf",
+                                        "application/x-font-otf",
+                                        "application/x-font-ttf",
+                                        "application/octet-stream",
+                                        "*/*"
+                                    )
+                                )
+                            },
+                            color = palette.mintSoft,
+                            shape = RoundedCornerShape(99.dp),
+                            modifier = Modifier
+                                .border(1.dp, palette.mint.copy(alpha = 0.4f), RoundedCornerShape(99.dp))
+                                .testTag("home_import_font_button")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FontDownload,
+                                    contentDescription = "Import OTF or TTF fonts",
+                                    tint = palette.mint,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = "+Fonts",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = palette.mint
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { showSettingsDialog = true },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .testTag("home_settings_button")
                         ) {
                             Icon(
-                                Icons.Default.FontDownload,
-                                contentDescription = "Import OTF or TTF font",
-                                tint = StudioMint,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "${fonts.size} Fonts • +OTF",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = StudioMint
+                                Icons.Default.Settings,
+                                contentDescription = "Theme & Settings",
+                                tint = palette.textPrimary
                             )
                         }
                     }
@@ -204,19 +232,19 @@ fun ProjectsHomeScreen(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = StudioSurfaceElevated,
+                    color = palette.surfaceElevated,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, StudioBorder, RoundedCornerShape(20.dp))
+                        .border(1.dp, palette.border, RoundedCornerShape(20.dp))
                 ) {
                     Box(
                         modifier = Modifier
                             .background(
                                 Brush.linearGradient(
                                     listOf(
-                                        StudioCoralSoft.copy(alpha = 0.65f),
-                                        StudioSurfaceElevated,
-                                        Color(0xFF17242A)
+                                        palette.accentSoft.copy(alpha = 0.7f),
+                                        palette.surfaceElevated,
+                                        palette.mintSoft.copy(alpha = 0.35f)
                                     )
                                 )
                             )
@@ -226,7 +254,7 @@ fun ProjectsHomeScreen(
                             Text(
                                 text = "Start Designing",
                                 style = MaterialTheme.typography.titleLarge,
-                                color = Color.White
+                                color = palette.textPrimary
                             )
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -238,7 +266,7 @@ fun ProjectsHomeScreen(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = StudioCoral),
+                                    colors = ButtonDefaults.buttonColors(containerColor = palette.accent),
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(50.dp)
@@ -276,11 +304,11 @@ fun ProjectsHomeScreen(
                                                 onCreated = onOpenProject
                                             )
                                         },
-                                        color = StudioSurfaceHighest,
+                                        color = palette.surfaceHighest,
                                         shape = RoundedCornerShape(10.dp),
                                         modifier = Modifier
                                             .weight(1f)
-                                            .border(1.dp, StudioBorder, RoundedCornerShape(10.dp))
+                                            .border(1.dp, palette.border, RoundedCornerShape(10.dp))
                                     ) {
                                         Column(
                                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -289,12 +317,12 @@ fun ProjectsHomeScreen(
                                             Text(
                                                 text = preset.ratioLabel,
                                                 style = MaterialTheme.typography.titleSmall,
-                                                color = Color.White
+                                                color = palette.textPrimary
                                             )
                                             Text(
                                                 text = "${preset.widthPx}×${preset.heightPx}",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = StudioTextSecondary
+                                                color = palette.textSecondary
                                             )
                                         }
                                     }
@@ -315,12 +343,12 @@ fun ProjectsHomeScreen(
                     Text(
                         text = "Editable Projects (${projects.size})",
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
+                        color = palette.textPrimary
                     )
                     Text(
-                        text = "Local offline storage",
+                        text = "${fonts.size} installed weights",
                         style = MaterialTheme.typography.labelSmall,
-                        color = StudioTextMuted
+                        color = palette.textMuted
                     )
                 }
             }
@@ -328,11 +356,11 @@ fun ProjectsHomeScreen(
             if (projects.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Surface(
-                        color = StudioSurface,
+                        color = palette.surface,
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(1.dp, StudioBorder, RoundedCornerShape(16.dp))
+                            .border(1.dp, palette.border, RoundedCornerShape(16.dp))
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -342,18 +370,18 @@ fun ProjectsHomeScreen(
                             Icon(
                                 Icons.Default.Layers,
                                 contentDescription = null,
-                                tint = StudioCoral,
+                                tint = palette.accent,
                                 modifier = Modifier.size(40.dp)
                             )
                             Text(
                                 "No saved projects yet",
                                 style = MaterialTheme.typography.titleMedium,
-                                color = Color.White
+                                color = palette.textPrimary
                             )
                             Text(
                                 "Import a photo or start a blank canvas with Arabic & English OpenType typography.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = StudioTextSecondary
+                                color = palette.textSecondary
                             )
                         }
                     }
@@ -379,6 +407,15 @@ fun ProjectsHomeScreen(
             onDismiss = { showNewCanvasDialog = false }
         )
     }
+
+    if (showSettingsDialog) {
+        SettingsDialog(
+            themeSettings = themeSettings,
+            onSelectThemeMode = { viewModel.setThemeMode(it) },
+            onSelectAccentColor = { viewModel.setAccentColor(it) },
+            onDismiss = { showSettingsDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -387,6 +424,7 @@ private fun ProjectCard(
     onOpen: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     val thumbFile = project.thumbnailPath?.let { File(it) }?.takeIf { it.exists() }
     val dateLabel = remember(project.updatedAtEpochMs) {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
@@ -394,11 +432,11 @@ private fun ProjectCard(
     }
 
     Surface(
-        color = StudioSurfaceElevated,
+        color = palette.surfaceElevated,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, StudioBorder, RoundedCornerShape(16.dp))
+            .border(1.dp, palette.border, RoundedCornerShape(16.dp))
             .clickable(onClick = onOpen)
             .testTag("project_card_${project.id}")
     ) {
@@ -407,7 +445,7 @@ private fun ProjectCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .background(StudioSurface)
+                    .background(palette.surface)
             ) {
                 if (thumbFile != null) {
                     Image(
@@ -420,7 +458,7 @@ private fun ProjectCard(
                     Icon(
                         Icons.Default.Layers,
                         contentDescription = null,
-                        tint = StudioTextMuted,
+                        tint = palette.textMuted,
                         modifier = Modifier.align(Alignment.Center).size(36.dp)
                     )
                 }
@@ -447,14 +485,14 @@ private fun ProjectCard(
                     Text(
                         text = project.title,
                         style = MaterialTheme.typography.titleSmall,
-                        color = Color.White,
+                        color = palette.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "${project.layerCount} layers • $dateLabel",
                         style = MaterialTheme.typography.labelSmall,
-                        color = StudioTextSecondary,
+                        color = palette.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -463,7 +501,7 @@ private fun ProjectCard(
                     Icon(
                         Icons.Default.DeleteOutline,
                         contentDescription = "Delete project",
-                        tint = StudioDanger,
+                        tint = palette.danger,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -478,6 +516,7 @@ private fun NewCanvasDialog(
     onCreate: (String, Int, Int, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     var title by remember { mutableStateOf("Untitled Frame") }
     var widthStr by remember { mutableStateOf("1080") }
     var heightStr by remember { mutableStateOf("1350") }
@@ -485,7 +524,7 @@ private fun NewCanvasDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = StudioSurface,
+        containerColor = palette.surface,
         title = { Text("New Canvas", style = MaterialTheme.typography.titleLarge) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

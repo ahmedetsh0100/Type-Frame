@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Typeface
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.example.model.FontFamilyGroup
 import com.example.model.FontItem
 import com.example.typography.GlyphAlternateMatch
 import com.example.typography.OpenTypeFontInspector
@@ -26,7 +27,11 @@ class FontRepository(
 
     private val bundledSpecs = listOf(
         Triple("asset:IBMPlexSansArabic-Regular.otf", "IBM Plex Sans Arabic", "fonts/IBMPlexSansArabic-Regular.otf"),
-        Triple("asset:Amiri-Regular.ttf", "Amiri Regular", "fonts/Amiri-Regular.ttf")
+        Triple("asset:IBMPlexSansArabic-Medium.otf", "IBM Plex Sans Arabic Medium", "fonts/IBMPlexSansArabic-Medium.otf"),
+        Triple("asset:IBMPlexSansArabic-Bold.otf", "IBM Plex Sans Arabic Bold", "fonts/IBMPlexSansArabic-Bold.otf"),
+        Triple("asset:Amiri-Regular.ttf", "Amiri", "fonts/Amiri-Regular.ttf"),
+        Triple("asset:Amiri-Bold.ttf", "Amiri Bold", "fonts/Amiri-Bold.ttf"),
+        Triple("asset:Amiri-Italic.ttf", "Amiri Italic", "fonts/Amiri-Italic.ttf")
     )
 
     fun observeAllFonts(): Flow<List<FontItem>> {
@@ -39,6 +44,34 @@ class FontRepository(
             }
             imported + bundled
         }
+    }
+
+    fun groupIntoFamilies(
+        fonts: List<FontItem>,
+        favoriteFamilyKeys: Set<String>
+    ): List<FontFamilyGroup> {
+        return fonts
+            .groupBy { it.metadata.familyName.trim().lowercase() }
+            .map { (key, members) ->
+                val sortedWeights = members.sortedWith(
+                    compareBy<FontItem> { it.metadata.isItalic }
+                        .thenBy { it.metadata.weightValue }
+                        .thenBy { it.metadata.subfamilyName }
+                )
+                val displayFamily = sortedWeights.first().metadata.familyName
+                FontFamilyGroup(
+                    familyKey = key,
+                    familyName = displayFamily,
+                    weights = sortedWeights,
+                    isFavorite = key in favoriteFamilyKeys,
+                    supportsArabic = sortedWeights.any { it.metadata.supportsArabic }
+                )
+            }
+            .sortedWith(
+                compareByDescending<FontFamilyGroup> { it.isFavorite }
+                    .thenByDescending { it.weights.any { w -> !w.isBundled } }
+                    .thenBy { it.familyName.lowercase() }
+            )
     }
 
     suspend fun getBundledFontsImmediate(): List<FontItem> = withContext(Dispatchers.IO) {
@@ -110,7 +143,6 @@ class FontRepository(
             typefaceCache[fontId] = tf
             return tf
         }
-        // Fallback for bundled asset IDs before flow emits
         val bundled = bundledSpecs.firstOrNull { it.first == fontId }
         if (bundled != null) {
             return Typeface.createFromAsset(context.assets, bundled.third).also {
@@ -154,7 +186,7 @@ class FontRepository(
             typefaceCache.putIfAbsent(entity.id, Typeface.createFromFile(file))
             FontItem(
                 id = entity.id,
-                displayName = entity.displayName,
+                displayName = metadata.fullName.ifBlank { entity.displayName },
                 fileName = entity.fileName,
                 isBundled = false,
                 filePath = entity.filePath,

@@ -92,11 +92,18 @@ object OpenTypeFontInspector {
         } ?: 0
 
         val nameMap = tables["name"]?.let { parseNameTable(reader, it) } ?: emptyMap()
-        val familyName = nameMap[16] ?: nameMap[1] ?: fallbackName
-        val subfamilyName = nameMap[17] ?: nameMap[2] ?: "Regular"
+        val rawFamily = nameMap[16] ?: nameMap[1] ?: fallbackName
+        val subfamilyName = nameMap[17] ?: nameMap[2] ?: inferWeightFromName(fallbackName)
+        val familyName = normalizeFamilyName(rawFamily)
         val fullName = nameMap[4] ?: "$familyName $subfamilyName".trim()
 
         val cmap = tables["cmap"]?.let { parseCmap(reader, it) } ?: emptyMap()
+        val os2WeightClass = tables["OS/2"]?.let { os2 ->
+            if (os2.length >= 6) reader.u16(os2.offset + 4).takeIf { it in 100..1000 } else null
+        } ?: inferWeightValue(subfamilyName)
+        val os2Italic = tables["OS/2"]?.let { os2 ->
+            if (os2.length >= 64) (reader.u16(os2.offset + 62) and 1) != 0 else false
+        } ?: subfamilyName.contains("italic", ignoreCase = true)
         val os2Arabic = tables["OS/2"]?.let { os2 ->
             if (os2.length >= 46) (reader.u32(os2.offset + 42) and (1L shl 13)) != 0L else false
         } ?: false
@@ -182,8 +189,55 @@ object OpenTypeFontInspector {
             features = features,
             hasMarkPositioning = "mark" in allTags || "mkmk" in allTags,
             hasCursiveAttachment = "curs" in allTags,
-            hasArabicShaping = "init" in allTags && "medi" in allTags && "fina" in allTags
+            hasArabicShaping = "init" in allTags && "medi" in allTags && "fina" in allTags,
+            weightValue = os2WeightClass,
+            isItalic = os2Italic
         )
+    }
+
+    private fun normalizeFamilyName(raw: String): String {
+        val suffixes = listOf(
+            "Thin", "ExtraLight", "Extra Light", "UltraLight", "Light",
+            "Regular", "Book", "Normal", "Medium", "SemiBold", "Semi Bold",
+            "DemiBold", "Bold", "ExtraBold", "Extra Bold", "Black", "Heavy",
+            "Italic", "Oblique"
+        )
+        var cleaned = raw.trim()
+        for (s in suffixes) {
+            if (cleaned.endsWith(" $s", ignoreCase = true) || cleaned.endsWith("-$s", ignoreCase = true)) {
+                cleaned = cleaned.dropLast(s.length + 1).trim()
+            }
+        }
+        return cleaned.ifBlank { raw.trim() }
+    }
+
+    private fun inferWeightFromName(name: String): String {
+        val lower = name.lowercase()
+        return when {
+            "bolditalic" in lower || "bold italic" in lower -> "Bold Italic"
+            "semibold" in lower -> "SemiBold"
+            "extrabold" in lower -> "ExtraBold"
+            "medium" in lower -> "Medium"
+            "light" in lower -> "Light"
+            "bold" in lower -> "Bold"
+            "italic" in lower -> "Italic"
+            else -> "Regular"
+        }
+    }
+
+    private fun inferWeightValue(subfamily: String): Int {
+        val lower = subfamily.lowercase()
+        return when {
+            "thin" in lower -> 100
+            "extralight" in lower || "ultralight" in lower -> 200
+            "light" in lower -> 300
+            "medium" in lower -> 500
+            "semibold" in lower || "demibold" in lower -> 600
+            "extrabold" in lower || "ultrabold" in lower -> 800
+            "black" in lower || "heavy" in lower -> 900
+            "bold" in lower -> 700
+            else -> 400
+        }
     }
 
     /**

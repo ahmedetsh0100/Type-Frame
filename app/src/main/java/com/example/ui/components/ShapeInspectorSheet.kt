@@ -38,9 +38,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.model.ShapeKind
 import com.example.model.ShapeLayer
-import com.example.ui.theme.StudioCoral
-import com.example.ui.theme.StudioSurfaceElevated
-import com.example.ui.theme.StudioTextSecondary
+import com.example.ui.theme.LocalStudioPalette
 import com.example.viewmodel.ColorTarget
 import kotlin.math.roundToInt
 
@@ -53,6 +51,8 @@ fun ShapeInspectorSheet(
     onPickColorTarget: (ColorTarget) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = LocalStudioPalette.current
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -60,7 +60,6 @@ fun ShapeInspectorSheet(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Quick Add Shape Buttons
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
@@ -80,12 +79,11 @@ fun ShapeInspectorSheet(
             Text(
                 "Tap + Line, + Rect, or + Circle to place a precision vector shape.",
                 style = MaterialTheme.typography.bodySmall,
-                color = StudioTextSecondary
+                color = palette.textSecondary
             )
             return@Column
         }
 
-        // Switch shape kind
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
@@ -99,7 +97,6 @@ fun ShapeInspectorSheet(
             }
         }
 
-        // Manual numeric dimensions (exact pixel input!)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
@@ -162,9 +159,8 @@ fun ShapeInspectorSheet(
             )
         }
 
-        // Fill & Stroke toggles + colors
         Surface(
-            color = StudioSurfaceElevated,
+            color = palette.surfaceElevated,
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -180,16 +176,16 @@ fun ShapeInspectorSheet(
                                 .size(26.dp)
                                 .clip(CircleShape)
                                 .background(Color(shapeLayer.strokeColorArgb))
-                                .border(1.5.dp, Color.White, CircleShape)
+                                .border(1.5.dp, palette.border, CircleShape)
                                 .clickable { onPickColorTarget(ColorTarget.SHAPE_STROKE) }
                         )
                         Spacer(Modifier.width(10.dp))
-                        Text("Stroke Color", style = MaterialTheme.typography.titleSmall, color = Color.White)
+                        Text("Stroke Color", style = MaterialTheme.typography.titleSmall, color = palette.textPrimary)
                     }
                     Switch(
                         checked = shapeLayer.strokeEnabled,
                         onCheckedChange = { e -> onUpdateShape { it.copy(strokeEnabled = e) } },
-                        colors = SwitchDefaults.colors(checkedTrackColor = StudioCoral)
+                        colors = SwitchDefaults.colors(checkedTrackColor = palette.accent)
                     )
                 }
 
@@ -205,16 +201,16 @@ fun ShapeInspectorSheet(
                                     .size(26.dp)
                                     .clip(CircleShape)
                                     .background(Color(shapeLayer.fillColorArgb))
-                                    .border(1.5.dp, Color.White, CircleShape)
+                                    .border(1.5.dp, palette.border, CircleShape)
                                     .clickable { onPickColorTarget(ColorTarget.SHAPE_FILL) }
                             )
                             Spacer(Modifier.width(10.dp))
-                            Text("Fill Color", style = MaterialTheme.typography.titleSmall, color = Color.White)
+                            Text("Fill Color", style = MaterialTheme.typography.titleSmall, color = palette.textPrimary)
                         }
                         Switch(
                             checked = shapeLayer.fillEnabled,
                             onCheckedChange = { e -> onUpdateShape { it.copy(fillEnabled = e) } },
-                            colors = SwitchDefaults.colors(checkedTrackColor = StudioCoral)
+                            colors = SwitchDefaults.colors(checkedTrackColor = palette.accent)
                         )
                     }
                 }

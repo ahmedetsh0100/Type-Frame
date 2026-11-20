@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,28 +55,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.model.CanvasLayer
+import com.example.model.PaintLayer
 import com.example.model.ShapeLayer
 import com.example.model.TextLayer
-import com.example.ui.theme.StudioBorder
-import com.example.ui.theme.StudioCoral
-import com.example.ui.theme.StudioMint
-import com.example.ui.theme.StudioSurfaceHighest
-import com.example.ui.theme.StudioTextSecondary
+import com.example.ui.theme.LocalStudioPalette
 import com.example.viewmodel.ColorTarget
 import kotlin.math.roundToInt
 
-private val curatedSwatches = listOf(
-    0xFFFFFFFF.toInt(),
-    0xFF0E1015.toInt(),
-    0xFFFF5A36.toInt(),
-    0xFFFFB84D.toInt(),
-    0xFF2EE6A8.toInt(),
-    0xFF5C9DFF.toInt(),
-    0xFFE94D89.toInt(),
-    0xFF9E7BFF.toInt(),
-    0xFFF4E8D1.toInt(),
-    0xFFD4AF37.toInt()
-)
+private enum class ColorInputMode {
+    HEX,
+    RGB
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -81,11 +73,15 @@ fun ColorPickerSheet(
     selectedLayer: CanvasLayer?,
     activeColorTarget: ColorTarget,
     currentColorArgb: Int,
+    savedColors: List<Int>,
+    recentColors: List<Int>,
     onSelectColorTarget: (ColorTarget) -> Unit,
     onColorChanged: (Int) -> Unit,
+    onSaveColor: (Int) -> Unit,
     onStartEyedropper: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = LocalStudioPalette.current
     val hsv = remember(currentColorArgb) {
         FloatArray(3).also { AndroidColor.colorToHSV(currentColorArgb, it) }
     }
@@ -96,6 +92,7 @@ fun ColorPickerSheet(
     var hexText by remember(currentColorArgb) {
         mutableStateOf(Integer.toHexString(currentColorArgb).uppercase().padStart(8, '0').takeLast(6))
     }
+    var inputMode by remember { mutableStateOf(ColorInputMode.HEX) }
 
     LaunchedEffect(currentColorArgb) {
         val fresh = FloatArray(3)
@@ -116,10 +113,10 @@ fun ColorPickerSheet(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Target pills
+        // Target pills + Eyedropper
         val availableTargets = when (selectedLayer) {
             is TextLayer -> listOf(
                 ColorTarget.TEXT_FILL to "Fill",
@@ -132,7 +129,14 @@ fun ColorPickerSheet(
                 ColorTarget.SHAPE_FILL to "Fill",
                 ColorTarget.CANVAS_BG to "Canvas"
             )
-            else -> listOf(ColorTarget.CANVAS_BG to "Canvas")
+            is PaintLayer -> listOf(
+                ColorTarget.BRUSH_COLOR to "Brush",
+                ColorTarget.CANVAS_BG to "Canvas"
+            )
+            else -> listOf(
+                ColorTarget.BRUSH_COLOR to "Brush",
+                ColorTarget.CANVAS_BG to "Canvas"
+            )
         }
 
         Row(
@@ -148,7 +152,7 @@ fun ColorPickerSheet(
                     FilterChip(
                         selected = activeColorTarget == target,
                         onClick = { onSelectColorTarget(target) },
-                        label = { Text(label, style = MaterialTheme.typography.labelLarge) }
+                        label = { Text(label, style = MaterialTheme.typography.labelMedium) }
                     )
                 }
             }
@@ -157,22 +161,22 @@ fun ColorPickerSheet(
 
             Button(
                 onClick = onStartEyedropper,
-                colors = ButtonDefaults.buttonColors(containerColor = StudioMint, contentColor = Color(0xFF0F1014)),
+                colors = ButtonDefaults.buttonColors(containerColor = palette.mint, contentColor = Color(0xFF0F1014)),
                 modifier = Modifier.testTag("eyedropper_button")
             ) {
-                Icon(Icons.Default.Colorize, contentDescription = "Sample color from image", modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Eyedropper")
+                Icon(Icons.Default.Colorize, contentDescription = "Sample color from artwork", modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("Sample", style = MaterialTheme.typography.labelMedium)
             }
         }
 
-        // Saturation & Value Spectrum Pad
+        // Saturation & Value Pad
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(118.dp)
+                .height(104.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, StudioBorder, RoundedCornerShape(12.dp))
+                .border(1.dp, palette.border, RoundedCornerShape(12.dp))
         ) {
             Canvas(
                 modifier = Modifier
@@ -199,8 +203,8 @@ fun ColorPickerSheet(
 
                 val cx = sat * size.width
                 val cy = (1f - value) * size.height
-                drawCircle(Color.White, radius = 9.dp.toPx(), center = Offset(cx, cy), style = Stroke(2.5.dp.toPx()))
-                drawCircle(Color.Black, radius = 10.5.dp.toPx(), center = Offset(cx, cy), style = Stroke(1.dp.toPx()))
+                drawCircle(Color.White, radius = 8.dp.toPx(), center = Offset(cx, cy), style = Stroke(2.5.dp.toPx()))
+                drawCircle(Color.Black, radius = 9.5.dp.toPx(), center = Offset(cx, cy), style = Stroke(1.dp.toPx()))
             }
         }
 
@@ -208,7 +212,7 @@ fun ColorPickerSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(28.dp)
+                .height(22.dp)
                 .clip(RoundedCornerShape(99.dp))
         ) {
             Canvas(
@@ -233,28 +237,28 @@ fun ColorPickerSheet(
                 )
                 drawRect(Brush.horizontalGradient(rainbow))
                 val kx = (hue / 360f) * size.width
-                drawCircle(Color.White, radius = 10.dp.toPx(), center = Offset(kx, size.height / 2f), style = Stroke(2.5.dp.toPx()))
+                drawCircle(Color.White, radius = 9.dp.toPx(), center = Offset(kx, size.height / 2f), style = Stroke(2.5.dp.toPx()))
             }
         }
 
-        // Alpha Slider + Hex Input
+        // Preview + Alpha + HEX/RGB switcher
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(34.dp)
                     .clip(CircleShape)
                     .background(Color(currentColorArgb))
-                    .border(2.dp, Color.White, CircleShape)
+                    .border(2.dp, palette.border, CircleShape)
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "Alpha ${(alpha * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = StudioTextSecondary
+                    "Opacity ${(alpha * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textSecondary
                 )
                 Slider(
                     value = alpha,
@@ -262,50 +266,160 @@ fun ColorPickerSheet(
                         alpha = it
                         emitColor(hue, sat, value, it)
                     },
-                    colors = SliderDefaults.colors(thumbColor = StudioCoral, activeTrackColor = StudioCoral)
+                    colors = SliderDefaults.colors(thumbColor = palette.accent, activeTrackColor = palette.accent),
+                    modifier = Modifier.height(24.dp)
                 )
             }
-            OutlinedTextField(
-                value = hexText,
-                onValueChange = { input ->
-                    val clean = input.uppercase().filter { it in '0'..'9' || it in 'A'..'F' }.take(6)
-                    hexText = clean
-                    if (clean.length == 6) {
-                        val rgb = clean.toInt(16)
-                        val aInt = (alpha * 255).roundToInt().coerceIn(0, 255)
-                        onColorChanged((aInt shl 24) or rgb)
-                    }
-                },
-                prefix = { Text("#", style = MaterialTheme.typography.labelMedium) },
-                singleLine = true,
-                textStyle = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.width(116.dp)
+            FilterChip(
+                selected = inputMode == ColorInputMode.HEX,
+                onClick = { inputMode = if (inputMode == ColorInputMode.HEX) ColorInputMode.RGB else ColorInputMode.HEX },
+                label = { Text(if (inputMode == ColorInputMode.HEX) "HEX" else "RGB") }
             )
         }
 
-        // Quick Swatches
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            curatedSwatches.forEach { swatch ->
-                val selected = (swatch and 0x00FFFFFF) == (currentColorArgb and 0x00FFFFFF)
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(Color(swatch))
-                        .border(
-                            width = if (selected) 2.5.dp else 1.dp,
-                            color = if (selected) StudioCoral else StudioBorder,
-                            shape = CircleShape
-                        )
-                        .clickable {
-                            val aInt = (alpha * 255).roundToInt().coerceIn(16, 255)
-                            onColorChanged((aInt shl 24) or (swatch and 0x00FFFFFF))
+        if (inputMode == ColorInputMode.HEX) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = hexText,
+                    onValueChange = { input ->
+                        val clean = input.uppercase().filter { it in '0'..'9' || it in 'A'..'F' }.take(6)
+                        hexText = clean
+                        if (clean.length == 6) {
+                            val rgb = clean.toInt(16)
+                            val aInt = (alpha * 255).roundToInt().coerceIn(0, 255)
+                            onColorChanged((aInt shl 24) or rgb)
                         }
+                    },
+                    prefix = { Text("#", style = MaterialTheme.typography.labelMedium) },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Surface(
+                    onClick = { onSaveColor(currentColorArgb) },
+                    color = palette.surfaceElevated,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.border(1.dp, palette.border, RoundedCornerShape(10.dp))
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Save color swatch", tint = palette.accent, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Save Color", style = MaterialTheme.typography.labelMedium, color = palette.textPrimary)
+                    }
+                }
+            }
+        } else {
+            val r = AndroidColor.red(currentColorArgb)
+            val g = AndroidColor.green(currentColorArgb)
+            val b = AndroidColor.blue(currentColorArgb)
+            val aInt = AndroidColor.alpha(currentColorArgb)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                RgbMiniSlider("R", r, Color(0xFFFF5C70), Modifier.weight(1f)) { nr ->
+                    onColorChanged(AndroidColor.argb(aInt, nr, g, b))
+                }
+                RgbMiniSlider("G", g, Color(0xFF2EE6A8), Modifier.weight(1f)) { ng ->
+                    onColorChanged(AndroidColor.argb(aInt, r, ng, b))
+                }
+                RgbMiniSlider("B", b, Color(0xFF5C9DFF), Modifier.weight(1f)) { nb ->
+                    onColorChanged(AndroidColor.argb(aInt, r, g, nb))
+                }
+            }
+        }
+
+        // Saved Colors Strip
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+        ) {
+            Text("Saved", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+            savedColors.forEach { swatch ->
+                ColorSwatchCircle(
+                    argb = swatch,
+                    selected = (swatch and 0x00FFFFFF) == (currentColorArgb and 0x00FFFFFF),
+                    onClick = {
+                        val aInt = (alpha * 255).roundToInt().coerceIn(16, 255)
+                        onColorChanged((aInt shl 24) or (swatch and 0x00FFFFFF))
+                    }
                 )
             }
         }
+
+        // Recent Colors Strip
+        if (recentColors.isNotEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                Text("Recent", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+                recentColors.forEach { swatch ->
+                    ColorSwatchCircle(
+                        argb = swatch,
+                        selected = (swatch and 0x00FFFFFF) == (currentColorArgb and 0x00FFFFFF),
+                        onClick = {
+                            val aInt = (alpha * 255).roundToInt().coerceIn(16, 255)
+                            onColorChanged((aInt shl 24) or (swatch and 0x00FFFFFF))
+                        }
+                    )
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun RgbMiniSlider(
+    channel: String,
+    value: Int,
+    trackColor: Color,
+    modifier: Modifier = Modifier,
+    onChange: (Int) -> Unit
+) {
+    val palette = LocalStudioPalette.current
+    Column(modifier = modifier) {
+        Text("$channel: $value", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange(it.roundToInt().coerceIn(0, 255)) },
+            valueRange = 0f..255f,
+            colors = SliderDefaults.colors(thumbColor = trackColor, activeTrackColor = trackColor),
+            modifier = Modifier.height(26.dp)
+        )
+    }
+}
+
+@Composable
+private fun ColorSwatchCircle(
+    argb: Int,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val palette = LocalStudioPalette.current
+    Box(
+        modifier = Modifier
+            .size(26.dp)
+            .clip(CircleShape)
+            .background(Color(argb))
+            .border(
+                width = if (selected) 2.5.dp else 1.dp,
+                color = if (selected) palette.accent else palette.border,
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick)
+    )
 }

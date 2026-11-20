@@ -21,7 +21,6 @@ import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatAlignCenter
-import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,12 +43,7 @@ import com.example.model.TextLayer
 import com.example.typography.ArabicTypographyEngine
 import com.example.typography.TextAlignMode
 import com.example.typography.TextDirectionMode
-import com.example.ui.theme.StudioBorder
-import com.example.ui.theme.StudioCoral
-import com.example.ui.theme.StudioMint
-import com.example.ui.theme.StudioSurfaceElevated
-import com.example.ui.theme.StudioTextMuted
-import com.example.ui.theme.StudioTextSecondary
+import com.example.ui.theme.LocalStudioPalette
 import com.example.viewmodel.ColorTarget
 import kotlin.math.roundToInt
 
@@ -62,15 +56,16 @@ fun TextStyleInspectorSheet(
     onPickColorTarget: (ColorTarget) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = LocalStudioPalette.current
     if (textLayer == null) {
         Column(
             modifier = modifier.fillMaxWidth().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                "Tap a text layer or tap + Text to start styling.",
+                "Tap a text layer or tap + Text to start styling directly on canvas.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = StudioTextSecondary
+                color = palette.textSecondary
             )
         }
         return
@@ -85,7 +80,7 @@ fun TextStyleInspectorSheet(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Edit Text Pill + Alignment + Direction
+        // Edit Directly on Canvas Pill + Alignment
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -93,25 +88,25 @@ fun TextStyleInspectorSheet(
         ) {
             Surface(
                 onClick = onEditTextClick,
-                color = StudioSurfaceElevated,
+                color = palette.surfaceElevated,
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .border(1.dp, StudioBorder, RoundedCornerShape(10.dp))
+                    .border(1.dp, palette.border, RoundedCornerShape(10.dp))
                     .testTag("edit_text_content_button")
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit text", tint = StudioCoral, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Edit, contentDescription = "Edit text on canvas", tint = palette.accent, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = textLayer.text.replace('\n', ' '),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White
+                        color = palette.textPrimary
                     )
                 }
             }
@@ -122,7 +117,7 @@ fun TextStyleInspectorSheet(
                 Icon(
                     Icons.AutoMirrored.Filled.FormatAlignLeft,
                     contentDescription = "Align start",
-                    tint = if (textLayer.alignMode == TextAlignMode.START) StudioCoral else StudioTextSecondary
+                    tint = if (textLayer.alignMode == TextAlignMode.START) palette.accent else palette.textSecondary
                 )
             }
             IconButton(
@@ -131,7 +126,7 @@ fun TextStyleInspectorSheet(
                 Icon(
                     Icons.Default.FormatAlignCenter,
                     contentDescription = "Align center",
-                    tint = if (textLayer.alignMode == TextAlignMode.CENTER) StudioCoral else StudioTextSecondary
+                    tint = if (textLayer.alignMode == TextAlignMode.CENTER) palette.accent else palette.textSecondary
                 )
             }
             IconButton(
@@ -140,7 +135,7 @@ fun TextStyleInspectorSheet(
                 Icon(
                     Icons.AutoMirrored.Filled.FormatAlignRight,
                     contentDescription = "Align end",
-                    tint = if (textLayer.alignMode == TextAlignMode.END) StudioCoral else StudioTextSecondary
+                    tint = if (textLayer.alignMode == TextAlignMode.END) palette.accent else palette.textSecondary
                 )
             }
         }
@@ -151,7 +146,7 @@ fun TextStyleInspectorSheet(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Direction", style = MaterialTheme.typography.labelLarge, color = StudioTextSecondary)
+            Text("Direction", style = MaterialTheme.typography.labelLarge, color = palette.textSecondary)
             Spacer(Modifier.weight(1f))
             listOf(
                 TextDirectionMode.AUTO to "Auto BiDi",
@@ -166,7 +161,6 @@ fun TextStyleInspectorSheet(
             }
         }
 
-        // Size & Box Width & Opacity
         StudioSliderRow(
             label = "Font Size",
             valueLabel = "${textLayer.fontSizePx.roundToInt()} px",
@@ -200,12 +194,12 @@ fun TextStyleInspectorSheet(
                 Text(
                     "Arabic Joining Lock (preserves curs/mark shaping)",
                     style = MaterialTheme.typography.labelSmall,
-                    color = StudioMint
+                    color = palette.mint
                 )
                 Switch(
                     checked = textLayer.preserveArabicJoining,
                     onCheckedChange = { checked -> onUpdateText { it.copy(preserveArabicJoining = checked) } },
-                    colors = SwitchDefaults.colors(checkedTrackColor = StudioMint)
+                    colors = SwitchDefaults.colors(checkedTrackColor = palette.mint)
                 )
             }
         }
@@ -220,7 +214,7 @@ fun TextStyleInspectorSheet(
 
         // Stroke Controls
         Surface(
-            color = StudioSurfaceElevated,
+            color = palette.surfaceElevated,
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -236,18 +230,18 @@ fun TextStyleInspectorSheet(
                                 .size(24.dp)
                                 .clip(CircleShape)
                                 .background(Color(textLayer.stroke.colorArgb))
-                                .border(1.5.dp, Color.White, CircleShape)
+                                .border(1.5.dp, palette.border, CircleShape)
                                 .clickable { onPickColorTarget(ColorTarget.TEXT_STROKE) }
                         )
                         Spacer(Modifier.width(10.dp))
-                        Text("Stroke Outline", style = MaterialTheme.typography.titleSmall, color = Color.White)
+                        Text("Stroke Outline", style = MaterialTheme.typography.titleSmall, color = palette.textPrimary)
                     }
                     Switch(
                         checked = textLayer.stroke.enabled,
                         onCheckedChange = { enabled ->
                             onUpdateText { it.copy(stroke = it.stroke.copy(enabled = enabled)) }
                         },
-                        colors = SwitchDefaults.colors(checkedTrackColor = StudioCoral)
+                        colors = SwitchDefaults.colors(checkedTrackColor = palette.accent)
                     )
                 }
                 if (textLayer.stroke.enabled) {
@@ -266,7 +260,7 @@ fun TextStyleInspectorSheet(
 
         // Shadow Controls
         Surface(
-            color = StudioSurfaceElevated,
+            color = palette.surfaceElevated,
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -282,18 +276,18 @@ fun TextStyleInspectorSheet(
                                 .size(24.dp)
                                 .clip(CircleShape)
                                 .background(Color(textLayer.shadow.colorArgb))
-                                .border(1.5.dp, Color.White, CircleShape)
+                                .border(1.5.dp, palette.border, CircleShape)
                                 .clickable { onPickColorTarget(ColorTarget.TEXT_SHADOW) }
                         )
                         Spacer(Modifier.width(10.dp))
-                        Text("Drop Shadow", style = MaterialTheme.typography.titleSmall, color = Color.White)
+                        Text("Drop Shadow", style = MaterialTheme.typography.titleSmall, color = palette.textPrimary)
                     }
                     Switch(
                         checked = textLayer.shadow.enabled,
                         onCheckedChange = { enabled ->
                             onUpdateText { it.copy(shadow = it.shadow.copy(enabled = enabled)) }
                         },
-                        colors = SwitchDefaults.colors(checkedTrackColor = StudioCoral)
+                        colors = SwitchDefaults.colors(checkedTrackColor = palette.accent)
                     )
                 }
                 if (textLayer.shadow.enabled) {
@@ -338,19 +332,20 @@ fun StudioSliderRow(
     range: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(label, style = MaterialTheme.typography.labelLarge, color = StudioTextSecondary)
-            Text(valueLabel, style = MaterialTheme.typography.labelMedium, color = Color.White)
+            Text(label, style = MaterialTheme.typography.labelLarge, color = palette.textSecondary)
+            Text(valueLabel, style = MaterialTheme.typography.labelMedium, color = palette.textPrimary)
         }
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = onValueChange,
             valueRange = range,
-            colors = SliderDefaults.colors(thumbColor = StudioCoral, activeTrackColor = StudioCoral)
+            colors = SliderDefaults.colors(thumbColor = palette.accent, activeTrackColor = palette.accent)
         )
     }
 }

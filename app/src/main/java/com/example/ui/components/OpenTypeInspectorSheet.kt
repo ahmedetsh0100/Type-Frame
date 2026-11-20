@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,15 +37,7 @@ import com.example.model.TextLayer
 import com.example.typography.FontFormat
 import com.example.typography.GlyphAlternateMatch
 import com.example.typography.OpenTypeFeatureInfo
-import com.example.ui.theme.StudioBorder
-import com.example.ui.theme.StudioCoral
-import com.example.ui.theme.StudioCoralSoft
-import com.example.ui.theme.StudioMint
-import com.example.ui.theme.StudioMintSoft
-import com.example.ui.theme.StudioSurfaceElevated
-import com.example.ui.theme.StudioSurfaceHighest
-import com.example.ui.theme.StudioTextMuted
-import com.example.ui.theme.StudioTextSecondary
+import com.example.ui.theme.LocalStudioPalette
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -57,15 +48,16 @@ fun OpenTypeInspectorSheet(
     onToggleFeature: (String, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = LocalStudioPalette.current
     if (textLayer == null || fontItem == null) {
         Column(
             modifier = modifier.fillMaxWidth().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                "Select a text layer to inspect its real OpenType GSUB/GPOS features.",
+                "Select a text layer to configure its real OpenType GSUB/GPOS features.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = StudioTextSecondary
+                color = palette.textSecondary
             )
         }
         return
@@ -82,9 +74,8 @@ fun OpenTypeInspectorSheet(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Real font diagnostics header
         Surface(
-            color = StudioSurfaceElevated,
+            color = palette.surfaceElevated,
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -97,10 +88,10 @@ fun OpenTypeInspectorSheet(
                     Text(
                         fontItem.displayName,
                         style = MaterialTheme.typography.titleSmall,
-                        color = Color.White
+                        color = palette.textPrimary
                     )
                     Surface(
-                        color = StudioCoralSoft,
+                        color = palette.accentSoft,
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         val fmt = when (meta.format) {
@@ -111,7 +102,7 @@ fun OpenTypeInspectorSheet(
                         Text(
                             "$fmt • ${meta.glyphCount} glyphs",
                             style = MaterialTheme.typography.labelSmall,
-                            color = StudioCoral,
+                            color = palette.accent,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
@@ -140,10 +131,9 @@ fun OpenTypeInspectorSheet(
             }
         }
 
-        // Live character alternate matches in current text
         if (alternateMatches.isNotEmpty()) {
             Surface(
-                color = StudioMintSoft,
+                color = palette.mintSoft,
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -151,7 +141,7 @@ fun OpenTypeInspectorSheet(
                     Text(
                         "Characters in your text with detected OpenType substitutions:",
                         style = MaterialTheme.typography.labelSmall,
-                        color = StudioMint
+                        color = palette.mint
                     )
                     val summary = alternateMatches
                         .groupBy { it.featureTag }
@@ -163,7 +153,7 @@ fun OpenTypeInspectorSheet(
                     Text(
                         summary,
                         style = MaterialTheme.typography.labelMedium,
-                        color = Color.White
+                        color = palette.textPrimary
                     )
                 }
             }
@@ -172,14 +162,14 @@ fun OpenTypeInspectorSheet(
         Text(
             "Detected OpenType Features (${userFeatures.size})",
             style = MaterialTheme.typography.labelLarge,
-            color = StudioTextSecondary
+            color = palette.textSecondary
         )
 
         if (userFeatures.isEmpty()) {
             Text(
                 "This font has no optional GSUB/GPOS stylistic features beyond mandatory script shaping.",
                 style = MaterialTheme.typography.bodySmall,
-                color = StudioTextMuted
+                color = palette.textMuted
             )
         } else {
             userFeatures.forEach { feat ->
@@ -197,7 +187,7 @@ fun OpenTypeInspectorSheet(
             Text(
                 "Active Mandatory HarfBuzz Lookups: ${engineFeatures.joinToString(", ") { it.tag }}",
                 style = MaterialTheme.typography.labelSmall,
-                color = StudioTextMuted
+                color = palette.textMuted
             )
         }
     }
@@ -209,15 +199,16 @@ private fun OpenTypeFeatureRow(
     currentValue: Int,
     onValueChange: (Int) -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     val isEnabled = currentValue > 0
     Surface(
-        color = StudioSurfaceHighest,
+        color = palette.surfaceHighest,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier
             .fillMaxWidth()
             .border(
                 width = 1.dp,
-                color = if (isEnabled) StudioCoral.copy(alpha = 0.65f) else StudioBorder,
+                color = if (isEnabled) palette.accent.copy(alpha = 0.65f) else palette.border,
                 shape = RoundedCornerShape(12.dp)
             )
             .testTag("opentype_feature_${feature.tag}")
@@ -227,13 +218,13 @@ private fun OpenTypeFeatureRow(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Surface(
-                color = if (isEnabled) StudioCoral else Color(0xFF232631),
+                color = if (isEnabled) palette.accent else palette.surfaceElevated,
                 shape = RoundedCornerShape(6.dp)
             ) {
                 Text(
                     text = feature.tag,
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White,
+                    color = if (isEnabled) Color.White else palette.textPrimary,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
@@ -244,7 +235,7 @@ private fun OpenTypeFeatureRow(
                 Text(
                     text = feature.displayName,
                     style = MaterialTheme.typography.titleSmall,
-                    color = Color.White
+                    color = palette.textPrimary
                 )
                 val altsInfo = if (feature.maxAlternateCount > 1) {
                     "${feature.coveredGlyphCount} glyphs • up to ${feature.maxAlternateCount} alts"
@@ -254,7 +245,7 @@ private fun OpenTypeFeatureRow(
                 Text(
                     text = altsInfo,
                     style = MaterialTheme.typography.labelSmall,
-                    color = StudioTextSecondary
+                    color = palette.textSecondary
                 )
             }
 
@@ -264,19 +255,19 @@ private fun OpenTypeFeatureRow(
                         onClick = { onValueChange((currentValue - 1).coerceAtLeast(0)) },
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.Remove, contentDescription = "Previous alternate", tint = Color.White)
+                        Icon(Icons.Default.Remove, contentDescription = "Previous alternate", tint = palette.textPrimary)
                     }
                     Text(
                         text = if (currentValue == 0) "OFF" else "#$currentValue",
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (isEnabled) StudioMint else StudioTextMuted,
+                        color = if (isEnabled) palette.mint else palette.textMuted,
                         modifier = Modifier.width(32.dp)
                     )
                     IconButton(
                         onClick = { onValueChange((currentValue + 1).coerceAtMost(feature.maxAlternateCount)) },
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Next alternate", tint = Color.White)
+                        Icon(Icons.Default.Add, contentDescription = "Next alternate", tint = palette.textPrimary)
                     }
                 }
             } else {
@@ -285,7 +276,7 @@ private fun OpenTypeFeatureRow(
                     onCheckedChange = { checked -> onValueChange(if (checked) 1 else 0) },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
-                        checkedTrackColor = StudioCoral
+                        checkedTrackColor = palette.accent
                     )
                 )
             }
@@ -295,14 +286,15 @@ private fun OpenTypeFeatureRow(
 
 @Composable
 private fun DiagnosticBadge(text: String, active: Boolean) {
+    val palette = LocalStudioPalette.current
     Surface(
-        color = if (active) StudioMintSoft else Color(0xFF232631),
+        color = if (active) palette.mintSoft else palette.surfaceHighest,
         shape = RoundedCornerShape(6.dp)
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = if (active) StudioMint else StudioTextMuted,
+            color = if (active) palette.mint else palette.textMuted,
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
         )
     }

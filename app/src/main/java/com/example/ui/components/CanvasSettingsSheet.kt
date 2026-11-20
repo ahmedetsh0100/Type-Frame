@@ -24,13 +24,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.model.DefaultCanvasPresets
 import com.example.model.ProjectDocument
-import com.example.ui.theme.StudioMint
-import com.example.ui.theme.StudioTextSecondary
+import com.example.ui.theme.LocalStudioPalette
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -40,6 +38,7 @@ fun CanvasSettingsSheet(
     onPickBackgroundColor: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = LocalStudioPalette.current
     var titleText by remember(document.id, document.title) { mutableStateOf(document.title) }
     var widthInput by remember(document.canvasWidthPx) { mutableStateOf(document.canvasWidthPx.toString()) }
     var heightInput by remember(document.canvasHeightPx) { mutableStateOf(document.canvasHeightPx.toString()) }
@@ -68,13 +67,13 @@ fun CanvasSettingsSheet(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column {
-                Text("Transparent Canvas", style = MaterialTheme.typography.titleSmall, color = Color.White)
-                Text("Preview & export without solid background", style = MaterialTheme.typography.labelSmall, color = StudioTextSecondary)
+                Text("Transparent Canvas", style = MaterialTheme.typography.titleSmall, color = palette.textPrimary)
+                Text("Preview & export without solid background", style = MaterialTheme.typography.labelSmall, color = palette.textSecondary)
             }
             Switch(
                 checked = document.isTransparentBackground,
                 onCheckedChange = { tr -> onUpdateDocument { it.copy(isTransparentBackground = tr) } },
-                colors = SwitchDefaults.colors(checkedTrackColor = StudioMint)
+                colors = SwitchDefaults.colors(checkedTrackColor = palette.mint)
             )
         }
 
@@ -84,7 +83,7 @@ fun CanvasSettingsSheet(
             }
         }
 
-        Text("Aspect Ratio Presets", style = MaterialTheme.typography.labelLarge, color = StudioTextSecondary)
+        Text("Aspect Ratio Presets", style = MaterialTheme.typography.labelLarge, color = palette.textSecondary)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             DefaultCanvasPresets.forEach { preset ->
                 val selected = document.canvasWidthPx == preset.widthPx && document.canvasHeightPx == preset.heightPx

@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "TYPEFRAME"
+rootProject.name = "HTYPE"
 
 include(":app")

@@ -2,18 +2,25 @@ package com.example.render
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BlendMode
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
-import android.text.StaticLayout
+import android.os.Build
 import android.util.LruCache
 import com.example.data.FontRepository
 import com.example.model.CanvasLayer
 import com.example.model.FontItem
 import com.example.model.ImageLayer
+import com.example.model.LayerBlendMode
+import com.example.model.PaintLayer
+import com.example.model.PaintStroke
 import com.example.model.ProjectDocument
 import com.example.model.ShapeKind
 import com.example.model.ShapeLayer
@@ -21,12 +28,10 @@ import com.example.model.TextLayer
 import com.example.typography.ArabicTypographyEngine
 import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 
 object CanvasRenderer {
 
-    // 48MB preview bitmap cache tuned for mid-range Android devices
     private val previewCache = object : LruCache<String, Bitmap>(48 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
@@ -67,9 +72,10 @@ object CanvasRenderer {
         fontRepository: FontRepository,
         fontsById: Map<String, FontItem>,
         forceTransparentBackground: Boolean = false,
+        textOnlyMode: Boolean = false,
         isExportMode: Boolean = false
     ) {
-        if (!forceTransparentBackground && !doc.isTransparentBackground) {
+        if (!forceTransparentBackground && !doc.isTransparentBackground && !textOnlyMode) {
             val bgPaint = Paint().apply {
                 color = doc.backgroundColorArgb
                 style = Paint.Style.FILL
@@ -79,9 +85,12 @@ object CanvasRenderer {
 
         for (layer in doc.layers) {
             if (!layer.isVisible) continue
+            if (textOnlyMode && layer !is TextLayer) continue
             drawLayer(
                 canvas = canvas,
                 layer = layer,
+                docWidthPx = doc.canvasWidthPx,
+                docHeightPx = doc.canvasHeightPx,
                 fontRepository = fontRepository,
                 fontsById = fontsById,
                 isExportMode = isExportMode
@@ -94,13 +103,14 @@ object CanvasRenderer {
         fontRepository: FontRepository,
         fontsById: Map<String, FontItem>,
         forceTransparentBackground: Boolean,
+        textOnlyMode: Boolean = false,
         scaleFactor: Float = 1f,
         isExportMode: Boolean = true
     ): Bitmap {
         val targetW = max(1, (doc.canvasWidthPx * scaleFactor).toInt())
         val targetH = max(1, (doc.canvasHeightPx * scaleFactor).toInt())
         val bitmap = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
-        if (!forceTransparentBackground && !doc.isTransparentBackground) {
+        if (!forceTransparentBackground && !doc.isTransparentBackground && !textOnlyMode) {
             bitmap.eraseColor(doc.backgroundColorArgb)
         } else {
             bitmap.eraseColor(Color.TRANSPARENT)
@@ -115,6 +125,7 @@ object CanvasRenderer {
             fontRepository = fontRepository,
             fontsById = fontsById,
             forceTransparentBackground = forceTransparentBackground,
+            textOnlyMode = textOnlyMode,
             isExportMode = isExportMode
         )
         return bitmap
@@ -123,21 +134,46 @@ object CanvasRenderer {
     fun drawLayer(
         canvas: Canvas,
         layer: CanvasLayer,
+        docWidthPx: Int,
+        docHeightPx: Int,
         fontRepository: FontRepository,
         fontsById: Map<String, FontItem>,
         isExportMode: Boolean
     ) {
+        val useBlendSaveLayer = layer.blendMode != LayerBlendMode.NORMAL
+        val blendRestoreCount = if (useBlendSaveLayer) {
+            val blendPaint = Paint().apply { applyBlendMode(this, layer.blendMode) }
+            canvas.saveLayer(0f, 0f, docWidthPx.toFloat(), docHeightPx.toFloat(), blendPaint)
+        } else -1
+
         canvas.save()
-        canvas.translate(layer.xPx, layer.yPx)
-        canvas.rotate(layer.rotationDeg)
-
-        when (layer) {
-            is ImageLayer -> drawImageLayer(canvas, layer, isExportMode)
-            is ShapeLayer -> drawShapeLayer(canvas, layer)
-            is TextLayer -> drawTextLayer(canvas, layer, fontRepository, fontsById)
+        if (layer is PaintLayer) {
+            canvas.translate(layer.xPx, layer.yPx)
+            if (layer.rotationDeg != 0f) {
+                canvas.rotate(layer.rotationDeg, docWidthPx / 2f, docHeightPx / 2f)
+            }
+            if (layer.scaleX != 1f || layer.scaleY != 1f) {
+                canvas.scale(layer.scaleX, layer.scaleY, docWidthPx / 2f, docHeightPx / 2f)
+            }
+            drawPaintLayer(canvas, layer, docWidthPx, docHeightPx)
+        } else {
+            canvas.translate(layer.xPx, layer.yPx)
+            canvas.rotate(layer.rotationDeg)
+            if (layer.scaleX != 1f || layer.scaleY != 1f) {
+                canvas.scale(layer.scaleX, layer.scaleY)
+            }
+            when (layer) {
+                is ImageLayer -> drawImageLayer(canvas, layer, isExportMode)
+                is ShapeLayer -> drawShapeLayer(canvas, layer)
+                is TextLayer -> drawTextLayer(canvas, layer, fontRepository, fontsById)
+                is PaintLayer -> {}
+            }
         }
-
         canvas.restore()
+
+        if (useBlendSaveLayer && blendRestoreCount >= 0) {
+            canvas.restoreToCount(blendRestoreCount)
+        }
     }
 
     private fun drawImageLayer(canvas: Canvas, layer: ImageLayer, isExportMode: Boolean) {
@@ -158,10 +194,80 @@ object CanvasRenderer {
         val halfH = layer.heightPx / 2f
         val dstRect = RectF(-halfW, -halfH, halfW, halfH)
 
+        val alphaInt = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
+        val hasMask = layer.eraseMaskStrokes.isNotEmpty()
+        val saveCount = if (hasMask) {
+            val layerPaint = Paint().apply { alpha = alphaInt }
+            canvas.saveLayer(-halfW - 4f, -halfH - 4f, halfW + 4f, halfH + 4f, layerPaint)
+        } else -1
+
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-            alpha = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
+            alpha = if (hasMask) 255 else alphaInt
         }
         canvas.drawBitmap(bitmap, srcRect, dstRect, paint)
+
+        if (hasMask) {
+            for (stroke in layer.eraseMaskStrokes) {
+                drawSingleStroke(canvas, stroke.copy(isEraser = true))
+            }
+            if (saveCount >= 0) canvas.restoreToCount(saveCount)
+        }
+    }
+
+    private fun drawPaintLayer(canvas: Canvas, layer: PaintLayer, docWidthPx: Int, docHeightPx: Int) {
+        if (layer.strokes.isEmpty()) return
+        val alphaInt = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
+        if (alphaInt <= 0) return
+
+        val layerPaint = Paint().apply { alpha = alphaInt }
+        val saveCount = canvas.saveLayer(0f, 0f, docWidthPx.toFloat(), docHeightPx.toFloat(), layerPaint)
+        for (stroke in layer.strokes) {
+            drawSingleStroke(canvas, stroke)
+        }
+        canvas.restoreToCount(saveCount)
+    }
+
+    fun drawSingleStroke(canvas: Canvas, stroke: PaintStroke) {
+        if (stroke.points.isEmpty()) return
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = stroke.sizePx.coerceAtLeast(1f)
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            if (stroke.isEraser) {
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+                color = Color.TRANSPARENT
+                alpha = ((stroke.opacity * stroke.flow).coerceIn(0.05f, 1f) * 255).toInt()
+            } else {
+                color = stroke.colorArgb
+                val combinedAlpha = (Color.alpha(stroke.colorArgb) / 255f) * stroke.opacity * stroke.flow
+                alpha = (combinedAlpha.coerceIn(0.01f, 1f) * 255).toInt()
+            }
+            val blurRadius = (1f - stroke.hardness.coerceIn(0f, 1f)) * (stroke.sizePx * 0.45f)
+            if (blurRadius > 0.75f) {
+                maskFilter = BlurMaskFilter(blurRadius, BlurMaskFilter.Blur.NORMAL)
+            }
+        }
+
+        if (stroke.points.size == 1) {
+            val pt = stroke.points.first()
+            paint.style = Paint.Style.FILL
+            canvas.drawCircle(pt.x, pt.y, stroke.sizePx / 2f, paint)
+        } else {
+            val path = Path()
+            val first = stroke.points.first()
+            path.moveTo(first.x, first.y)
+            for (i in 1 until stroke.points.size) {
+                val prev = stroke.points[i - 1]
+                val curr = stroke.points[i]
+                val midX = (prev.x + curr.x) / 2f
+                val midY = (prev.y + curr.y) / 2f
+                path.quadTo(prev.x, prev.y, midX, midY)
+            }
+            val last = stroke.points.last()
+            path.lineTo(last.x, last.y)
+            canvas.drawPath(path, paint)
+        }
     }
 
     private fun drawShapeLayer(canvas: Canvas, layer: ShapeLayer) {
@@ -247,7 +353,7 @@ object CanvasRenderer {
         val typeface = fontRepository.resolveTypeface(layer.fontId)
         val availableFeatures = fontsById[layer.fontId]?.metadata?.features ?: emptyList()
 
-        val (staticLayout, _) = ArabicTypographyEngine.shapeAndMeasure(
+        val (fillLayout, _) = ArabicTypographyEngine.shapeAndMeasure(
             text = layer.text,
             typeface = typeface,
             textSizePx = layer.fontSizePx,
@@ -258,11 +364,14 @@ object CanvasRenderer {
             alignMode = layer.alignMode,
             lineHeightMultiplier = layer.lineHeightMultiplier,
             letterSpacingEm = layer.letterSpacingEm,
-            preserveArabicJoining = layer.preserveArabicJoining
+            preserveArabicJoining = layer.preserveArabicJoining,
+            spans = layer.spans,
+            resolveSpanTypeface = { fId -> fontRepository.resolveTypeface(fId) },
+            includeSpanColors = true
         )
 
-        val layoutW = staticLayout.width.toFloat()
-        val layoutH = staticLayout.height.toFloat()
+        val layoutW = fillLayout.width.toFloat()
+        val layoutH = fillLayout.height.toFloat()
         val alphaInt = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
         if (alphaInt <= 0) return
 
@@ -275,49 +384,67 @@ object CanvasRenderer {
         canvas.save()
         canvas.translate(-layoutW / 2f, -layoutH / 2f)
 
-        // Use saveLayerAlpha so stroke + fill composite crisply without bleed at < 1.0 opacity
         val useLayer = layer.opacity < 0.999f || (layer.stroke.enabled && layer.stroke.widthPx > 0f)
         if (useLayer) {
             canvas.saveLayerAlpha(-pad, -pad, layoutW + pad, layoutH + pad, alphaInt)
         }
 
-        val paint = staticLayout.paint
-
-        // 1. Stroke pass (underneath fill)
+        // 1. Stroke pass (underneath fill, without foreground color span overrides)
         if (layer.stroke.enabled && layer.stroke.widthPx > 0f) {
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = layer.stroke.widthPx
-            paint.strokeJoin = Paint.Join.ROUND
-            paint.strokeCap = Paint.Cap.ROUND
-            paint.color = layer.stroke.colorArgb
+            val strokeLayout = if (layer.spans.any { it.colorArgb != null }) {
+                ArabicTypographyEngine.shapeAndMeasure(
+                    text = layer.text,
+                    typeface = typeface,
+                    textSizePx = layer.fontSizePx,
+                    maxWidthPx = layer.boxWidthPx.toInt().coerceAtLeast(100),
+                    featureValues = layer.openTypeFeatures,
+                    availableFeatures = availableFeatures,
+                    directionMode = layer.directionMode,
+                    alignMode = layer.alignMode,
+                    lineHeightMultiplier = layer.lineHeightMultiplier,
+                    letterSpacingEm = layer.letterSpacingEm,
+                    preserveArabicJoining = layer.preserveArabicJoining,
+                    spans = layer.spans,
+                    resolveSpanTypeface = { fId -> fontRepository.resolveTypeface(fId) },
+                    includeSpanColors = false
+                ).first
+            } else fillLayout
+
+            val sp = strokeLayout.paint
+            sp.style = Paint.Style.STROKE
+            sp.strokeWidth = layer.stroke.widthPx
+            sp.strokeJoin = Paint.Join.ROUND
+            sp.strokeCap = Paint.Cap.ROUND
+            sp.color = layer.stroke.colorArgb
             if (layer.shadow.enabled) {
-                paint.setShadowLayer(
+                sp.setShadowLayer(
                     layer.shadow.blurRadiusPx.coerceAtLeast(0.5f),
                     layer.shadow.offsetXPx,
                     layer.shadow.offsetYPx,
                     layer.shadow.colorArgb
                 )
             } else {
-                paint.clearShadowLayer()
+                sp.clearShadowLayer()
             }
-            staticLayout.draw(canvas)
+            strokeLayout.draw(canvas)
         }
 
-        // 2. Fill pass (on top)
-        paint.style = Paint.Style.FILL
-        paint.strokeWidth = 0f
-        paint.color = layer.colorArgb
+        // 2. Fill pass (on top, preserving span foreground colors)
+        val fp = fillLayout.paint
+        fp.style = Paint.Style.FILL
+        fp.strokeWidth = 0f
+        fp.color = layer.colorArgb
         if (layer.shadow.enabled && !layer.stroke.enabled) {
-            paint.setShadowLayer(
+            fp.setShadowLayer(
                 layer.shadow.blurRadiusPx.coerceAtLeast(0.5f),
                 layer.shadow.offsetXPx,
                 layer.shadow.offsetYPx,
                 layer.shadow.colorArgb
             )
         } else {
-            paint.clearShadowLayer()
+            fp.clearShadowLayer()
         }
-        staticLayout.draw(canvas)
+        fillLayout.draw(canvas)
 
         if (useLayer) {
             canvas.restore()
@@ -330,12 +457,13 @@ object CanvasRenderer {
         fontRepository: FontRepository,
         fontsById: Map<String, FontItem>
     ): Pair<Float, Float> {
-        return when (layer) {
+        val base = when (layer) {
             is ImageLayer -> layer.widthPx to layer.heightPx
             is ShapeLayer -> when (layer.shapeKind) {
                 ShapeKind.LINE -> layer.widthPx to max(48f, layer.strokeWidthPx + 24f)
                 else -> layer.widthPx to layer.heightPx
             }
+            is PaintLayer -> layer.canvasWidthPx.toFloat() to layer.canvasHeightPx.toFloat()
             is TextLayer -> {
                 val typeface = fontRepository.resolveTypeface(layer.fontId)
                 val availableFeatures = fontsById[layer.fontId]?.metadata?.features ?: emptyList()
@@ -350,11 +478,14 @@ object CanvasRenderer {
                     alignMode = layer.alignMode,
                     lineHeightMultiplier = layer.lineHeightMultiplier,
                     letterSpacingEm = layer.letterSpacingEm,
-                    preserveArabicJoining = layer.preserveArabicJoining
+                    preserveArabicJoining = layer.preserveArabicJoining,
+                    spans = layer.spans,
+                    resolveSpanTypeface = { fId -> fontRepository.resolveTypeface(fId) }
                 )
                 layout.width.toFloat().coerceAtLeast(64f) to layout.height.toFloat().coerceAtLeast(48f)
             }
         }
+        return (base.first * kotlin.math.abs(layer.scaleX)) to (base.second * kotlin.math.abs(layer.scaleY))
     }
 
     fun hitTestLayer(
@@ -365,7 +496,7 @@ object CanvasRenderer {
         fontsById: Map<String, FontItem>
     ): CanvasLayer? {
         for (layer in doc.layers.asReversed()) {
-            if (!layer.isVisible) continue
+            if (!layer.isVisible || layer is PaintLayer) continue
             val (w, h) = getLayerLocalSize(layer, fontRepository, fontsById)
             val dx = canvasX - layer.xPx
             val dy = canvasY - layer.yPx
@@ -378,6 +509,36 @@ object CanvasRenderer {
             }
         }
         return null
+    }
+
+    private fun applyBlendMode(paint: Paint, mode: LayerBlendMode) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            paint.blendMode = when (mode) {
+                LayerBlendMode.NORMAL -> BlendMode.SRC_OVER
+                LayerBlendMode.MULTIPLY -> BlendMode.MULTIPLY
+                LayerBlendMode.SCREEN -> BlendMode.SCREEN
+                LayerBlendMode.OVERLAY -> BlendMode.OVERLAY
+                LayerBlendMode.DARKEN -> BlendMode.DARKEN
+                LayerBlendMode.LIGHTEN -> BlendMode.LIGHTEN
+                LayerBlendMode.ADD -> BlendMode.PLUS
+                LayerBlendMode.COLOR_DODGE -> BlendMode.COLOR_DODGE
+                LayerBlendMode.COLOR_BURN -> BlendMode.COLOR_BURN
+                LayerBlendMode.SOFT_LIGHT -> BlendMode.SOFT_LIGHT
+                LayerBlendMode.DIFFERENCE -> BlendMode.DIFFERENCE
+            }
+        } else {
+            val pd = when (mode) {
+                LayerBlendMode.NORMAL -> null
+                LayerBlendMode.MULTIPLY -> PorterDuff.Mode.MULTIPLY
+                LayerBlendMode.SCREEN -> PorterDuff.Mode.SCREEN
+                LayerBlendMode.OVERLAY -> PorterDuff.Mode.OVERLAY
+                LayerBlendMode.DARKEN -> PorterDuff.Mode.DARKEN
+                LayerBlendMode.LIGHTEN -> PorterDuff.Mode.LIGHTEN
+                LayerBlendMode.ADD -> PorterDuff.Mode.ADD
+                else -> PorterDuff.Mode.SRC_OVER
+            }
+            paint.xfermode = pd?.let { PorterDuffXfermode(it) }
+        }
     }
 
     private fun applyAlpha(colorArgb: Int, alpha0To255: Int): Int {

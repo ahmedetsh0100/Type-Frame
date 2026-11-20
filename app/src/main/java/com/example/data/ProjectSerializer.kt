@@ -3,12 +3,17 @@ package com.example.data
 import com.example.model.CanvasLayer
 import com.example.model.CropRect
 import com.example.model.ImageLayer
+import com.example.model.LayerBlendMode
+import com.example.model.PaintLayer
+import com.example.model.PaintStroke
 import com.example.model.ProjectDocument
 import com.example.model.ShadowStyle
 import com.example.model.ShapeKind
 import com.example.model.ShapeLayer
+import com.example.model.StrokePoint
 import com.example.model.StrokeStyle
 import com.example.model.TextLayer
+import com.example.model.TextStyleSpan
 import com.example.typography.TextAlignMode
 import com.example.typography.TextDirectionMode
 import org.json.JSONArray
@@ -61,7 +66,10 @@ object ProjectSerializer {
             put("xPx", layer.xPx.toDouble())
             put("yPx", layer.yPx.toDouble())
             put("rotationDeg", layer.rotationDeg.toDouble())
+            put("scaleX", layer.scaleX.toDouble())
+            put("scaleY", layer.scaleY.toDouble())
             put("opacity", layer.opacity.toDouble())
+            put("blendMode", layer.blendMode.name)
             put("isVisible", layer.isVisible)
             put("isLocked", layer.isLocked)
         }
@@ -79,6 +87,7 @@ object ProjectSerializer {
                     put("right", layer.cropRect.right.toDouble())
                     put("bottom", layer.cropRect.bottom.toDouble())
                 })
+                obj.put("eraseMaskStrokes", strokesToJson(layer.eraseMaskStrokes))
             }
             is TextLayer -> {
                 obj.put("type", "text")
@@ -107,6 +116,20 @@ object ProjectSerializer {
                 val otObj = JSONObject()
                 layer.openTypeFeatures.forEach { (k, v) -> otObj.put(k, v) }
                 obj.put("openTypeFeatures", otObj)
+                val spansArr = JSONArray()
+                for (span in layer.spans) {
+                    spansArr.put(JSONObject().apply {
+                        put("start", span.start)
+                        put("end", span.end)
+                        span.fontId?.let { put("fontId", it) }
+                        span.fontSizePx?.let { put("fontSizePx", it.toDouble()) }
+                        span.colorArgb?.let { put("colorArgb", it) }
+                        span.isBold?.let { put("isBold", it) }
+                        span.isItalic?.let { put("isItalic", it) }
+                        span.isUnderline?.let { put("isUnderline", it) }
+                    })
+                }
+                obj.put("spans", spansArr)
             }
             is ShapeLayer -> {
                 obj.put("type", "shape")
@@ -120,8 +143,67 @@ object ProjectSerializer {
                 obj.put("strokeEnabled", layer.strokeEnabled)
                 obj.put("strokeColorArgb", layer.strokeColorArgb)
             }
+            is PaintLayer -> {
+                obj.put("type", "paint")
+                obj.put("canvasWidthPx", layer.canvasWidthPx)
+                obj.put("canvasHeightPx", layer.canvasHeightPx)
+                obj.put("strokes", strokesToJson(layer.strokes))
+            }
         }
         return obj
+    }
+
+    private fun strokesToJson(strokes: List<PaintStroke>): JSONArray {
+        val arr = JSONArray()
+        for (s in strokes) {
+            val ptsArr = JSONArray()
+            for (pt in s.points) {
+                ptsArr.put(JSONObject().apply {
+                    put("x", pt.x.toDouble())
+                    put("y", pt.y.toDouble())
+                })
+            }
+            arr.put(JSONObject().apply {
+                put("id", s.id)
+                put("colorArgb", s.colorArgb)
+                put("sizePx", s.sizePx.toDouble())
+                put("hardness", s.hardness.toDouble())
+                put("opacity", s.opacity.toDouble())
+                put("flow", s.flow.toDouble())
+                put("isEraser", s.isEraser)
+                put("points", ptsArr)
+            })
+        }
+        return arr
+    }
+
+    private fun strokesFromJson(arr: JSONArray?): List<PaintStroke> {
+        if (arr == null) return emptyList()
+        val list = ArrayList<PaintStroke>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val ptsArr = o.optJSONArray("points") ?: JSONArray()
+            val pts = ArrayList<StrokePoint>(ptsArr.length())
+            for (j in 0 until ptsArr.length()) {
+                val po = ptsArr.optJSONObject(j) ?: continue
+                pts.add(StrokePoint(po.optDouble("x", 0.0).toFloat(), po.optDouble("y", 0.0).toFloat()))
+            }
+            if (pts.isNotEmpty()) {
+                list.add(
+                    PaintStroke(
+                        id = o.optString("id", java.util.UUID.randomUUID().toString()),
+                        points = pts,
+                        colorArgb = o.optInt("colorArgb", 0xFFFF5A36.toInt()),
+                        sizePx = o.optDouble("sizePx", 36.0).toFloat(),
+                        hardness = o.optDouble("hardness", 0.85).toFloat(),
+                        opacity = o.optDouble("opacity", 1.0).toFloat(),
+                        flow = o.optDouble("flow", 1.0).toFloat(),
+                        isEraser = o.optBoolean("isEraser", false)
+                    )
+                )
+            }
+        }
+        return list
     }
 
     private fun layerFromJson(obj: JSONObject): CanvasLayer? {
@@ -130,7 +212,12 @@ object ProjectSerializer {
         val xPx = obj.optDouble("xPx", 540.0).toFloat()
         val yPx = obj.optDouble("yPx", 540.0).toFloat()
         val rotationDeg = obj.optDouble("rotationDeg", 0.0).toFloat()
+        val scaleX = obj.optDouble("scaleX", 1.0).toFloat()
+        val scaleY = obj.optDouble("scaleY", 1.0).toFloat()
         val opacity = obj.optDouble("opacity", 1.0).toFloat()
+        val blendMode = runCatching {
+            LayerBlendMode.valueOf(obj.optString("blendMode", "NORMAL"))
+        }.getOrDefault(LayerBlendMode.NORMAL)
         val isVisible = obj.optBoolean("isVisible", true)
         val isLocked = obj.optBoolean("isLocked", false)
 
@@ -151,7 +238,10 @@ object ProjectSerializer {
                     xPx = xPx,
                     yPx = yPx,
                     rotationDeg = rotationDeg,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
                     opacity = opacity,
+                    blendMode = blendMode,
                     isVisible = isVisible,
                     isLocked = isLocked,
                     imagePath = obj.getString("imagePath"),
@@ -159,7 +249,8 @@ object ProjectSerializer {
                     heightPx = obj.optDouble("heightPx", 600.0).toFloat(),
                     naturalWidthPx = obj.optInt("naturalWidthPx", 600),
                     naturalHeightPx = obj.optInt("naturalHeightPx", 600),
-                    cropRect = crop
+                    cropRect = crop,
+                    eraseMaskStrokes = strokesFromJson(obj.optJSONArray("eraseMaskStrokes"))
                 )
             }
             "text" -> {
@@ -193,13 +284,36 @@ object ProjectSerializer {
                     }
                 }
 
+                val spansArr = obj.optJSONArray("spans")
+                val spans = mutableListOf<TextStyleSpan>()
+                if (spansArr != null) {
+                    for (i in 0 until spansArr.length()) {
+                        val so = spansArr.optJSONObject(i) ?: continue
+                        spans.add(
+                            TextStyleSpan(
+                                start = so.optInt("start", 0),
+                                end = so.optInt("end", 0),
+                                fontId = if (so.has("fontId")) so.optString("fontId") else null,
+                                fontSizePx = if (so.has("fontSizePx")) so.optDouble("fontSizePx").toFloat() else null,
+                                colorArgb = if (so.has("colorArgb")) so.optInt("colorArgb") else null,
+                                isBold = if (so.has("isBold")) so.optBoolean("isBold") else null,
+                                isItalic = if (so.has("isItalic")) so.optBoolean("isItalic") else null,
+                                isUnderline = if (so.has("isUnderline")) so.optBoolean("isUnderline") else null
+                            )
+                        )
+                    }
+                }
+
                 TextLayer(
                     id = id,
                     name = name,
                     xPx = xPx,
                     yPx = yPx,
                     rotationDeg = rotationDeg,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
                     opacity = opacity,
+                    blendMode = blendMode,
                     isVisible = isVisible,
                     isLocked = isLocked,
                     text = obj.optString("text", ""),
@@ -218,7 +332,8 @@ object ProjectSerializer {
                     preserveArabicJoining = obj.optBoolean("preserveArabicJoining", true),
                     stroke = stroke,
                     shadow = shadow,
-                    openTypeFeatures = otMap
+                    openTypeFeatures = otMap,
+                    spans = spans
                 )
             }
             "shape" -> {
@@ -228,7 +343,10 @@ object ProjectSerializer {
                     xPx = xPx,
                     yPx = yPx,
                     rotationDeg = rotationDeg,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
                     opacity = opacity,
+                    blendMode = blendMode,
                     isVisible = isVisible,
                     isLocked = isLocked,
                     shapeKind = runCatching {
@@ -242,6 +360,24 @@ object ProjectSerializer {
                     fillColorArgb = obj.optInt("fillColorArgb", 0x33FF5A36),
                     strokeEnabled = obj.optBoolean("strokeEnabled", true),
                     strokeColorArgb = obj.optInt("strokeColorArgb", 0xFFFF5A36.toInt())
+                )
+            }
+            "paint" -> {
+                PaintLayer(
+                    id = id,
+                    name = name,
+                    xPx = xPx,
+                    yPx = yPx,
+                    rotationDeg = rotationDeg,
+                    scaleX = scaleX,
+                    scaleY = scaleY,
+                    opacity = opacity,
+                    blendMode = blendMode,
+                    isVisible = isVisible,
+                    isLocked = isLocked,
+                    canvasWidthPx = obj.optInt("canvasWidthPx", 1080),
+                    canvasHeightPx = obj.optInt("canvasHeightPx", 1350),
+                    strokes = strokesFromJson(obj.optJSONArray("strokes"))
                 )
             }
             else -> null

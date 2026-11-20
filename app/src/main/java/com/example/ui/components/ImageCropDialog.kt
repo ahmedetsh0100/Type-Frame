@@ -43,9 +43,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.model.CropRect
 import com.example.model.ImageLayer
 import com.example.render.CanvasRenderer
-import com.example.ui.theme.StudioCoral
-import com.example.ui.theme.StudioObsidian
-import com.example.ui.theme.StudioSurface
+import com.example.ui.theme.LocalStudioPalette
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -60,6 +58,7 @@ fun ImageCropDialog(
     onApply: (CropRect) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val palette = LocalStudioPalette.current
     val bitmap = remember(imageLayer.imagePath) {
         CanvasRenderer.getPreviewBitmap(imageLayer.imagePath, maxDimensionPx = 1280)
     }
@@ -71,7 +70,7 @@ fun ImageCropDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Surface(
-            color = StudioObsidian,
+            color = palette.background,
             modifier = Modifier.fillMaxSize()
         ) {
             Column(
@@ -95,7 +94,7 @@ fun ImageCropDialog(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .background(StudioSurface, RoundedCornerShape(16.dp))
+                        .background(palette.surface, RoundedCornerShape(16.dp))
                 ) {
                     if (bitmap != null) {
                         val density = LocalDensity.current
@@ -200,7 +199,7 @@ fun ImageCropDialog(
                                 Offset(cl + cw, ct + ch)
                             )
                             corners.forEach { pt ->
-                                drawCircle(StudioCoral, radius = 9.dp.toPx(), center = pt)
+                                drawCircle(palette.accent, radius = 9.dp.toPx(), center = pt)
                                 drawCircle(Color.White, radius = 9.dp.toPx(), center = pt, style = Stroke(2.dp.toPx()))
                             }
                         }

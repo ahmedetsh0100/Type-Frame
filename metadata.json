@@ -1,6 +1,6 @@
 {
-  "name": "TYPEFRAME",
-  "description": "Mobile Arabic & English typography and photo design studio with real OpenType shaping, custom OTF/TTF fonts, shapes, layers, and high-res PNG export.",
+  "name": "HTYPE",
+  "description": "HTYPE mobile Arabic & English typography and photo design studio with direct canvas manipulation, rich inline text styling, OpenType HarfBuzz shaping, brush & eraser, blend modes, and high-res PNG/JPEG/PDF export.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

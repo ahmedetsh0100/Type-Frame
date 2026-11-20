@@ -11,6 +11,20 @@ enum class ShapeKind {
     CIRCLE
 }
 
+enum class LayerBlendMode(val label: String) {
+    NORMAL("Normal"),
+    MULTIPLY("Multiply"),
+    SCREEN("Screen"),
+    OVERLAY("Overlay"),
+    DARKEN("Darken"),
+    LIGHTEN("Lighten"),
+    ADD("Add"),
+    COLOR_DODGE("Dodge"),
+    COLOR_BURN("Burn"),
+    SOFT_LIGHT("Soft Light"),
+    DIFFERENCE("Difference")
+}
+
 data class CropRect(
     val left: Float = 0f,
     val top: Float = 0f,
@@ -35,13 +49,43 @@ data class ShadowStyle(
     val offsetYPx: Float = 8f
 )
 
+data class TextStyleSpan(
+    val start: Int,
+    val end: Int,
+    val fontId: String? = null,
+    val fontSizePx: Float? = null,
+    val colorArgb: Int? = null,
+    val isBold: Boolean? = null,
+    val isItalic: Boolean? = null,
+    val isUnderline: Boolean? = null
+)
+
+data class StrokePoint(
+    val x: Float,
+    val y: Float
+)
+
+data class PaintStroke(
+    val id: String = UUID.randomUUID().toString(),
+    val points: List<StrokePoint>,
+    val colorArgb: Int = 0xFFFF5A36.toInt(),
+    val sizePx: Float = 36f,
+    val hardness: Float = 0.85f,
+    val opacity: Float = 1f,
+    val flow: Float = 1f,
+    val isEraser: Boolean = false
+)
+
 sealed interface CanvasLayer {
     val id: String
     val name: String
     val xPx: Float
     val yPx: Float
     val rotationDeg: Float
+    val scaleX: Float
+    val scaleY: Float
     val opacity: Float
+    val blendMode: LayerBlendMode
     val isVisible: Boolean
     val isLocked: Boolean
 
@@ -49,7 +93,10 @@ sealed interface CanvasLayer {
         xPx: Float = this.xPx,
         yPx: Float = this.yPx,
         rotationDeg: Float = this.rotationDeg,
+        scaleX: Float = this.scaleX,
+        scaleY: Float = this.scaleY,
         opacity: Float = this.opacity,
+        blendMode: LayerBlendMode = this.blendMode,
         isVisible: Boolean = this.isVisible,
         isLocked: Boolean = this.isLocked,
         name: String = this.name
@@ -62,7 +109,10 @@ data class ImageLayer(
     override val xPx: Float,
     override val yPx: Float,
     override val rotationDeg: Float = 0f,
+    override val scaleX: Float = 1f,
+    override val scaleY: Float = 1f,
     override val opacity: Float = 1f,
+    override val blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
     override val isVisible: Boolean = true,
     override val isLocked: Boolean = false,
     val imagePath: String,
@@ -70,13 +120,17 @@ data class ImageLayer(
     val heightPx: Float,
     val naturalWidthPx: Int,
     val naturalHeightPx: Int,
-    val cropRect: CropRect = CropRect()
+    val cropRect: CropRect = CropRect(),
+    val eraseMaskStrokes: List<PaintStroke> = emptyList()
 ) : CanvasLayer {
     override fun withBaseTransform(
         xPx: Float,
         yPx: Float,
         rotationDeg: Float,
+        scaleX: Float,
+        scaleY: Float,
         opacity: Float,
+        blendMode: LayerBlendMode,
         isVisible: Boolean,
         isLocked: Boolean,
         name: String
@@ -84,7 +138,10 @@ data class ImageLayer(
         xPx = xPx,
         yPx = yPx,
         rotationDeg = rotationDeg,
+        scaleX = scaleX,
+        scaleY = scaleY,
         opacity = opacity,
+        blendMode = blendMode,
         isVisible = isVisible,
         isLocked = isLocked,
         name = name
@@ -97,10 +154,13 @@ data class TextLayer(
     override val xPx: Float,
     override val yPx: Float,
     override val rotationDeg: Float = 0f,
+    override val scaleX: Float = 1f,
+    override val scaleY: Float = 1f,
     override val opacity: Float = 1f,
+    override val blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
     override val isVisible: Boolean = true,
     override val isLocked: Boolean = false,
-    val text: String = "تصميم TYPEFRAME",
+    val text: String = "تصميم HTYPE",
     val fontId: String = "asset:IBMPlexSansArabic-Regular.otf",
     val fontSizePx: Float = 96f,
     val boxWidthPx: Float = 860f,
@@ -112,13 +172,17 @@ data class TextLayer(
     val preserveArabicJoining: Boolean = true,
     val stroke: StrokeStyle = StrokeStyle(),
     val shadow: ShadowStyle = ShadowStyle(),
-    val openTypeFeatures: Map<String, Int> = mapOf("liga" to 1, "calt" to 1, "kern" to 1)
+    val openTypeFeatures: Map<String, Int> = mapOf("liga" to 1, "calt" to 1, "kern" to 1),
+    val spans: List<TextStyleSpan> = emptyList()
 ) : CanvasLayer {
     override fun withBaseTransform(
         xPx: Float,
         yPx: Float,
         rotationDeg: Float,
+        scaleX: Float,
+        scaleY: Float,
         opacity: Float,
+        blendMode: LayerBlendMode,
         isVisible: Boolean,
         isLocked: Boolean,
         name: String
@@ -126,7 +190,10 @@ data class TextLayer(
         xPx = xPx,
         yPx = yPx,
         rotationDeg = rotationDeg,
+        scaleX = scaleX,
+        scaleY = scaleY,
         opacity = opacity,
+        blendMode = blendMode,
         isVisible = isVisible,
         isLocked = isLocked,
         name = name
@@ -139,7 +206,10 @@ data class ShapeLayer(
     override val xPx: Float,
     override val yPx: Float,
     override val rotationDeg: Float = 0f,
+    override val scaleX: Float = 1f,
+    override val scaleY: Float = 1f,
     override val opacity: Float = 1f,
+    override val blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
     override val isVisible: Boolean = true,
     override val isLocked: Boolean = false,
     val shapeKind: ShapeKind = ShapeKind.RECTANGLE,
@@ -156,7 +226,10 @@ data class ShapeLayer(
         xPx: Float,
         yPx: Float,
         rotationDeg: Float,
+        scaleX: Float,
+        scaleY: Float,
         opacity: Float,
+        blendMode: LayerBlendMode,
         isVisible: Boolean,
         isLocked: Boolean,
         name: String
@@ -164,7 +237,51 @@ data class ShapeLayer(
         xPx = xPx,
         yPx = yPx,
         rotationDeg = rotationDeg,
+        scaleX = scaleX,
+        scaleY = scaleY,
         opacity = opacity,
+        blendMode = blendMode,
+        isVisible = isVisible,
+        isLocked = isLocked,
+        name = name
+    )
+}
+
+data class PaintLayer(
+    override val id: String = UUID.randomUUID().toString(),
+    override val name: String = "Paint Layer",
+    override val xPx: Float = 0f,
+    override val yPx: Float = 0f,
+    override val rotationDeg: Float = 0f,
+    override val scaleX: Float = 1f,
+    override val scaleY: Float = 1f,
+    override val opacity: Float = 1f,
+    override val blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
+    override val isVisible: Boolean = true,
+    override val isLocked: Boolean = false,
+    val canvasWidthPx: Int = 1080,
+    val canvasHeightPx: Int = 1350,
+    val strokes: List<PaintStroke> = emptyList()
+) : CanvasLayer {
+    override fun withBaseTransform(
+        xPx: Float,
+        yPx: Float,
+        rotationDeg: Float,
+        scaleX: Float,
+        scaleY: Float,
+        opacity: Float,
+        blendMode: LayerBlendMode,
+        isVisible: Boolean,
+        isLocked: Boolean,
+        name: String
+    ): PaintLayer = copy(
+        xPx = xPx,
+        yPx = yPx,
+        rotationDeg = rotationDeg,
+        scaleX = scaleX,
+        scaleY = scaleY,
+        opacity = opacity,
+        blendMode = blendMode,
         isVisible = isVisible,
         isLocked = isLocked,
         name = name
@@ -190,6 +307,14 @@ data class FontItem(
     val assetPath: String? = null,
     val filePath: String? = null,
     val metadata: FontMetadata
+)
+
+data class FontFamilyGroup(
+    val familyKey: String,
+    val familyName: String,
+    val weights: List<FontItem>,
+    val isFavorite: Boolean,
+    val supportsArabic: Boolean
 )
 
 data class CanvasPreset(

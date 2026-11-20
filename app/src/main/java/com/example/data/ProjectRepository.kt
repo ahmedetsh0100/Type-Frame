@@ -77,7 +77,7 @@ class ProjectRepository(
                     name = "Arabic Headline",
                     xPx = widthPx / 2f,
                     yPx = heightPx / 2f,
-                    text = "بِسْمِ الْإِبْدَاعِ\nTYPEFRAME STUDIO",
+                    text = "بِسْمِ الْإِبْدَاعِ\nHTYPE STUDIO",
                     fontSizePx = (widthPx * 0.085f).coerceIn(48f, 140f),
                     boxWidthPx = widthPx * 0.85f
                 )
